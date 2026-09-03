@@ -255,11 +255,11 @@ async function captureCameraImproved(){
 $('capture').onclick=captureCameraImproved;
 
 /* Mobile quick navigation */
-$('mImport')?.addEventListener('click',()=>$('pick').click());
-$('mGallery')?.addEventListener('click',openGallery);
-$('mCamera')?.addEventListener('click',()=>$('cam').click());
-$('mTemplate')?.addEventListener('click',()=>{ $('modal').classList.remove('hidden'); });
-$('mInfo')?.addEventListener('click',()=>$('infoBtn').click());
+$('mImport')?.addEventListener('click',()=>{$('files')?.click()});
+$('mGallery')?.addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();openGallery()});
+$('mCamera')?.addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();$('cam')?.click()});
+$('mTemplate')?.addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();$('modal')?.classList.remove('hidden');});
+$('mInfo')?.addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();$('infoBtn')?.click()});
 
 // Improve continuous autofocus after the camera becomes live.
 async function ensureAutofocus(){
