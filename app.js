@@ -27,3 +27,138 @@ function openGallery(){renderGallery();$('galleryModal').classList.remove('hidde
 $('galleryBtn').onclick=openGallery;$('closeGallery').onclick=()=>$('galleryModal').classList.add('hidden');$('selectAll').onclick=()=>{document.querySelectorAll('.gcheck').forEach(c=>c.checked=true)};$('deleteSelected').onclick=()=>{const ids=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index)).sort((a,b)=>b-a);if(!ids.length)return toast('Select photos to delete');ids.forEach(i=>{URL.revokeObjectURL(photos[i].url);photos.splice(i,1);if(selected===i)selected=-1;else if(selected>i)selected--});if(selected<0&&photos.length)selected=0;renderList();if(selected>=0)select(selected);else drawPreview();renderGallery();toast(`${ids.length} photo${ids.length>1?'s':''} deleted`)};$('editSelected').onclick=()=>{const checks=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index));if(checks.length!==1)return toast('Select exactly one photo to edit');select(checks[0]);$('galleryModal').classList.add('hidden');$('status').textContent=`Editing photo ${checks[0]+1}`};
 $('infoBtn').onclick=()=>{$('edit').classList.add('hidden');$('info').classList.remove('hidden');$('status').textContent='Info panel';};
 renderList();updateReadouts();
+
+/* --- Camera reliability/mobile fullscreen patch --- */
+const cameraModal = $('cameraModal');
+const cameraResolution = $('cameraResolution');
+const cameraOrientation = $('cameraOrientation');
+const camStage = document.querySelector('.camstage');
+let focusRing = document.getElementById('focusRing');
+if(!focusRing){
+  focusRing=document.createElement('div'); focusRing.id='focusRing'; focusRing.className='focus-ring'; camStage.appendChild(focusRing);
+}
+let cameraNative = true;
+let cameraImageCapture = null;
+
+function cameraLockPage(open){
+  document.documentElement.classList.toggle('camera-open',open);
+  document.body.classList.toggle('camera-open',open);
+}
+async function enterCameraFullscreen(){
+  cameraLockPage(true);
+  try{
+    if(document.fullscreenElement) return;
+    if(document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen({navigationUI:'hide'});
+  }catch(e){ /* iOS Safari and some embedded browsers do not expose Fullscreen API; fixed 100dvh mode remains */ }
+}
+async function exitCameraFullscreen(){
+  cameraLockPage(false);
+  try{ if(document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen(); }catch(e){}
+}
+function showFocus(x,y){
+  focusRing.style.left=x+'px'; focusRing.style.top=y+'px';
+  focusRing.classList.remove('show'); void focusRing.offsetWidth; focusRing.classList.add('show');
+  clearTimeout(showFocus.t); showFocus.t=setTimeout(()=>focusRing.classList.remove('show'),900);
+}
+async function focusCamera(ev){
+  if(!cameraTrack) return;
+  const rect=$('video').getBoundingClientRect();
+  const x=ev.clientX-rect.left, y=ev.clientY-rect.top;
+  if(x<0||y<0||x>rect.width||y>rect.height) return;
+  showFocus(x + $('video').offsetLeft, y + $('video').offsetTop);
+  const caps=cameraTrack.getCapabilities ? cameraTrack.getCapabilities() : {};
+  try{
+    if(caps.focusMode && caps.focusMode.includes('single-shot')){
+      await cameraTrack.applyConstraints({advanced:[{focusMode:'single-shot'}]});
+    } else if(caps.focusMode && caps.focusMode.includes('continuous')){
+      await cameraTrack.applyConstraints({advanced:[{focusMode:'continuous'}]});
+    }
+  }catch(e){ try{await cameraTrack.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(_){} }
+}
+if(camStage){
+  camStage.addEventListener('pointerup',e=>{ if(e.pointerType==='touch'||e.pointerType==='mouse') focusCamera(e); });
+}
+function updateCameraOrientation(){
+  const o=cameraOrientation ? cameraOrientation.value : 'auto';
+  $('video').style.transform = o==='portrait' ? 'none' : 'none';
+}
+function populateCameraResolutions(){
+  if(!cameraResolution || !cameraTrack) return;
+  const caps=cameraTrack.getCapabilities ? cameraTrack.getCapabilities() : {};
+  const maxW=caps.width?.max, maxH=caps.height?.max;
+  const nativeOpt=cameraResolution.querySelector('option[value="native"]');
+  if(nativeOpt) nativeOpt.textContent=maxW&&maxH?`Native / Highest (${maxW} × ${maxH})`:'Native / Highest available';
+}
+
+/* Replace camera start with autofocus + selected constraints. */
+async function startCameraImproved(){
+  stopCamera();
+  const desired = cameraResolution?.value || 'native';
+  let width=3840,height=2160;
+  if(desired!=='native' && desired!=='custom') [width,height]=desired.split('x').map(Number);
+  if(desired==='custom'){width=Math.max(100,parseInt($('camW').value)||1920);height=Math.max(100,parseInt($('camH').value)||1080)}
+  const orientation=cameraOrientation?.value||'auto';
+  if(orientation==='portrait' && width>height) [width,height]=[height,width];
+  if(orientation==='landscape' && height>width) [width,height]=[height,width];
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:camFacing},width:{ideal:width},height:{ideal:height},frameRate:{ideal:30,max:60}},audio:false
+    });
+    $('video').srcObject=stream;
+    cameraTrack=stream.getVideoTracks()[0];
+    const caps=cameraTrack.getCapabilities ? cameraTrack.getCapabilities() : {};
+    const advanced=[];
+    if(caps.focusMode){
+      if(caps.focusMode.includes('continuous')) advanced.push({focusMode:'continuous'});
+      else if(caps.focusMode.includes('single-shot')) advanced.push({focusMode:'single-shot'});
+    }
+    if(caps.exposureMode?.includes('continuous')) advanced.push({exposureMode:'continuous'});
+    if(caps.whiteBalanceMode?.includes('continuous')) advanced.push({whiteBalanceMode:'continuous'});
+    if(advanced.length){try{await cameraTrack.applyConstraints({advanced})}catch(e){}}
+    cameraNative = desired==='native';
+    cameraImageCapture = ('ImageCapture' in window) ? new ImageCapture(cameraTrack) : null;
+    const s=cameraTrack.getSettings();
+    $('camQuality').textContent=`Live: ${s.width||$('video').videoWidth||'?'} × ${s.height||$('video').videoHeight||'?'} · Tap preview to focus`;
+    populateCameraResolutions(); updateCameraOrientation();
+    $('video').setAttribute('autofocus','autofocus');
+    try{await $('video').play()}catch(e){}
+    liveDraw();
+  }catch(e){
+    toast(e?.name==='NotAllowedError'?'Allow camera permission, then try again.':'Camera could not start. Use HTTPS/localhost.');
+  }
+}
+
+/* Rewire handlers */
+$('cam').onclick=async()=>{await enterCameraFullscreen(); cameraModal.classList.remove('hidden'); await startCameraImproved()};
+$('closeCam').onclick=async()=>{cameraModal.classList.add('hidden');stopCamera();await exitCameraFullscreen()};
+$('switchCam').onclick=async()=>{camFacing=camFacing==='environment'?'user':'environment';await startCameraImproved()};
+if(cameraResolution) cameraResolution.onchange=async()=>{
+  const c=cameraResolution.value==='custom'; $('camCustom').classList.toggle('hidden',!c);
+  if(!cameraModal.classList.contains('hidden')) await startCameraImproved();
+};
+if(cameraOrientation) cameraOrientation.onchange=async()=>{
+  updateCameraOrientation(); if(!cameraModal.classList.contains('hidden')) await startCameraImproved();
+};
+window.addEventListener('orientationchange',()=>{if(!cameraModal.classList.contains('hidden')) setTimeout(()=>{updateCameraOrientation();liveDraw()},250)});
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement && !cameraModal.classList.contains('hidden')) cameraLockPage(true)});
+
+async function captureCameraImproved(){
+  const v=$('video'); if(!v.videoWidth){toast('Camera is not ready yet');return}
+  const desired=cameraResolution?.value||'native';
+  let [ow,oh]=cameraSize();
+  const orientation=cameraOrientation?.value||'auto';
+  if(orientation==='portrait' && ow>oh)[ow,oh]=[oh,ow];
+  if(orientation==='landscape' && oh>ow)[ow,oh]=[oh,ow];
+  const q=document.createElement('canvas');q.width=ow;q.height=oh;
+  const x=q.getContext('2d',{alpha:false,desynchronized:true});
+  x.imageSmoothingEnabled=true;x.imageSmoothingQuality='high';
+  const sc=Math.max(ow/v.videoWidth,oh/v.videoHeight),dw=v.videoWidth*sc,dh=v.videoHeight*sc;
+  x.drawImage(v,(ow-dw)/2,(oh-dh)/2,dw,dh);
+  if(overlay)x.drawImage(overlay,0,0,ow,oh);
+  q.toBlob(async b=>{
+    if(!b){toast('Capture failed');return}
+    const f=new File([b],`CAM_${Date.now()}_${ow}x${oh}.jpg`,{type:'image/jpeg',lastModified:Date.now()});
+    await addFiles([f]); cameraModal.classList.add('hidden');stopCamera();await exitCameraFullscreen();toast(`Captured ${ow} × ${oh} · high quality`);
+  },'image/jpeg',1.0);
+}
+$('capture').onclick=captureCameraImproved;

@@ -6,3 +6,59 @@
 @media (max-width:850px) and (orientation:landscape){.app>header{min-height:54px;padding:6px 10px}.brand>strong{padding:7px}.brand b{font-size:11px}.brand small{font-size:7px}.actions button{padding:6px 8px;min-height:30px;font-size:9px}.layout{grid-template-columns:150px minmax(0,1fr) 190px;height:calc(100dvh - 54px)}.layout>aside,.panel,.layout main{padding:8px}.stage{height:calc(100dvh - 125px);min-height:180px}.toolbar{min-height:42px;padding-top:4px}.toolbar select{max-width:150px}.photo img{width:44px;height:36px}.panel label{margin:8px 0}.camera-controls{min-height:76px}.camera-top{height:48px}}
 @media (max-width:420px){.brand small{display:none}.actions button#tpl{display:none}.toolbar button#reset{display:none}.photos{max-height:125px}.photo{width:84px;min-width:84px}.photo img{height:52px}.gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.camera-controls label{max-width:55vw}.camera-controls select{min-width:135px}}
 @media (orientation:landscape) and (max-height:560px){.app>header{min-height:48px}.layout{height:calc(100dvh - 48px)}.stage{height:calc(100dvh - 105px)}.panel{overflow:auto}.camera-controls{min-height:68px}.capture{width:52px;height:52px}}
+
+/* Camera/mobile reliability */
+html.camera-open, body.camera-open{width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
+.camera-modal{height:100dvh;width:100vw;min-height:100svh;touch-action:manipulation}
+.camera-ui{min-height:100dvh;height:100%;padding-top:max(env(safe-area-inset-top),0px);padding-bottom:max(env(safe-area-inset-bottom),0px)}
+.camstage{touch-action:none}
+.camstage video{display:block;max-width:100%;max-height:100%;object-position:center;transform:none;will-change:transform}
+.focus-ring{position:absolute;width:62px;height:62px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px #0008;pointer-events:none;transform:translate(-50%,-50%) scale(.75);opacity:0;transition:opacity .15s,transform .15s;z-index:4}
+.focus-ring.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.camera-status{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#0009;color:#fff;border-radius:999px;padding:6px 10px;font-size:9px;z-index:4;white-space:nowrap}
+.camera-controls{flex-wrap:wrap}
+@media (max-width:850px){
+  .camera-modal{position:fixed;inset:0;z-index:9999}
+  .camera-ui{width:100vw;max-width:none}
+  .camera-top{flex:0 0 52px}
+  .camstage{flex:1 1 auto;min-height:0}
+  .camera-controls{flex:0 0 auto;padding:8px max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));gap:8px}
+  .camera-controls label{min-width:0}
+  .camera-controls select{max-width:46vw;min-width:0}
+  .camera-controls #camCustom{width:100%;justify-content:center}
+}
+@media (max-width:600px) and (orientation:portrait){
+  .camera-top{height:54px}
+  .camera-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}
+  .camera-controls label{grid-column:1}
+  .camera-controls label:nth-of-type(2){grid-column:1}
+  .capture{grid-column:2;grid-row:1 / span 2}
+  .camera-controls #camCustom{grid-column:1}
+}
+@media (max-width:850px) and (orientation:landscape){
+  .camera-ui{flex-direction:row;flex-wrap:wrap}
+  .camera-top{width:100%;height:48px;flex-basis:48px}
+  .camstage{width:calc(100% - 170px);height:calc(100dvh - 48px);flex:1 1 auto}
+  .camera-controls{width:170px;height:calc(100dvh - 48px);flex:0 0 170px;flex-direction:column;justify-content:center}
+  .camera-controls select{min-width:145px;max-width:155px}
+}
+@media (max-height:500px){.camera-top{height:46px}.camera-controls{min-height:64px}.capture{width:54px;height:54px}}
+/* Gallery mobile */
+.gallery-modal{padding:0;align-items:stretch;justify-content:stretch;z-index:500}
+.gallery-card{width:100%;height:100dvh;min-height:100svh;border-radius:0;padding:max(10px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left))}
+.gallery-actions{position:sticky;top:0;z-index:3;background:#f8fafc;padding-bottom:8px;margin-bottom:2px}
+.gallery-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));grid-auto-rows:max-content;align-content:start;min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.gitem{min-width:0;overflow:hidden}
+.gitem img{width:100%;height:auto;aspect-ratio:4/3;object-fit:cover}
+@media (max-width:850px){
+ .gallery-card{padding-left:max(8px,env(safe-area-inset-left));padding-right:max(8px,env(safe-area-inset-right))}
+ .gallery-actions{gap:6px;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
+ .gallery-actions::-webkit-scrollbar{display:none}
+ .gallery-actions button{flex:0 0 auto;min-height:40px}
+ .gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding-bottom:20px}
+ .gitem{padding:4px;border-radius:8px}
+ .gcheck{top:8px;left:8px;width:22px;height:22px}
+ .gitem div:last-child{font-size:10px;padding:0 2px 2px}
+}
+@media (min-width:500px) and (max-width:850px){.gallery-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:360px){.gallery-grid{gap:5px}.gallery-actions button{padding:7px 9px;font-size:10px}.gitem div:last-child{font-size:9px}}
