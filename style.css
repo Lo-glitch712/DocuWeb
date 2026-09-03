@@ -109,3 +109,6 @@ button, select, input { -webkit-tap-highlight-color: transparent; }
 .camera-modal,.camera-ui{min-height:100svh;height:100dvh}
 .camera-ui{padding-bottom:max(env(safe-area-inset-bottom),6px)}
 .camstage video{image-rendering:auto}
+.gitem.checked{outline:2px solid var(--blue);box-shadow:0 0 0 2px rgba(36,87,214,.15)}
+.gitem.current::after{content:'Current';position:absolute;right:8px;bottom:34px;background:#2457d6;color:#fff;font-size:8px;font-weight:800;padding:3px 5px;border-radius:999px}
+@media (max-width:850px){.app>header .actions{display:none}.toolbar{position:relative}.toolbar #batchZip{display:none}.gallery-actions #batchZip{display:inline-flex}}

@@ -1,20 +1,95 @@
 const $=id=>document.getElementById(id); const W=940,H=788;
 const canvas=$('canvas'),ctx=canvas.getContext('2d',{alpha:false});
 let photos=[],selected=-1,overlay=null,overlayURL=null,stream=null,camFacing='environment',cameraTrack=null;
+
+/* --- Persistent local photo storage (IndexedDB) ---
+const DB_NAME='docuframe_local_v1', DB_VER=1, PHOTO_STORE='photos';
+let db=null;
+function openPhotoDB(){
+  if(db) return Promise.resolve(db);
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(DB_NAME,DB_VER);
+    req.onupgradeneeded=()=>{ const d=req.result; if(!d.objectStoreNames.contains(PHOTO_STORE)){ const st=d.createObjectStore(PHOTO_STORE,{keyPath:'id'}); st.createIndex('addedAt','addedAt'); } };
+    req.onsuccess=()=>{ db=req.result; resolve(db); };
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function dbPutPhoto(p){
+  try{ const d=await openPhotoDB(); await new Promise((res,rej)=>{ const tx=d.transaction(PHOTO_STORE,'readwrite'); tx.objectStore(PHOTO_STORE).put({id:p.id,blob:p.file,name:p.name,width:p.width,height:p.height,addedAt:p.addedAt,e:p.e}); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }catch(e){ console.warn('Photo persistence failed',e); }
+}
+async function dbDeletePhoto(id){
+  try{ const d=await openPhotoDB(); await new Promise((res,rej)=>{ const tx=d.transaction(PHOTO_STORE,'readwrite'); tx.objectStore(PHOTO_STORE).delete(id); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }catch(e){ console.warn('Photo delete persistence failed',e); }
+}
+async function dbLoadPhotos(){
+  try{
+    const d=await openPhotoDB();
+    const rows=await new Promise((res,rej)=>{ const tx=d.transaction(PHOTO_STORE,'readonly'); const r=tx.objectStore(PHOTO_STORE).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); });
+    rows.sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
+    photos=[];
+    for(const row of rows){ const blob=row.blob; photos.push({id:row.id,file:blob,name:row.name,url:URL.createObjectURL(blob),width:row.width,height:row.height,addedAt:row.addedAt,e:row.e||{z:1,x:0,y:0,r:0,b:1,c:1}}); }
+    renderList();
+    if(photos.length){ selected=0; select(0); $('status').textContent=`${photos.length} saved photo${photos.length>1?'s':''} restored · newest first`; }
+    else { $('status').textContent='Ready · photos are saved on this device'; }
+  }catch(e){ console.warn('Photo restore failed',e); $('status').textContent='Ready · local photo storage unavailable'; }
+}
+
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.remove('hidden');clearTimeout(window.__toast);window.__toast=setTimeout(()=>t.classList.add('hidden'),2200)}
 function loadImage(fileOrUrl){return new Promise((resolve,reject)=>{const url=typeof fileOrUrl==='string'?fileOrUrl:URL.createObjectURL(fileOrUrl);const im=new Image();im.onload=()=>{if(typeof fileOrUrl!=='string')URL.revokeObjectURL(url);resolve(im)};im.onerror=()=>{if(typeof fileOrUrl!=='string')URL.revokeObjectURL(url);reject(new Error('decode'))};im.src=url})}
 function renderList(){ $('count').textContent=photos.length; if(!photos.length){$('photos').innerHTML='<div class="empty">No photos yet</div>';return} $('photos').innerHTML=''; photos.forEach((p,i)=>{const d=document.createElement('div');d.className='photo '+(i===selected?'active':'');const im=document.createElement('img');im.src=p.url;const box=document.createElement('div'),b=document.createElement('b'),sm=document.createElement('small');b.textContent=p.name;sm.textContent=`${i+1} · ${p.width}×${p.height}`;box.append(b,sm);d.append(im,box);d.onclick=()=>select(i);$('photos').append(d)})}
-async function addFiles(list){let added=0;for(const file of list){if(!file.type.startsWith('image/')&&!/\.(png|jpe?g|webp|heic|heif|dng|raw)$/i.test(file.name))continue;try{const im=await loadImage(file);photos.push({file,name:file.name,url:URL.createObjectURL(file),width:im.naturalWidth,height:im.naturalHeight,e:{z:1,x:0,y:0,r:0,b:1,c:1}});added++}catch(e){console.warn('Cannot decode',file.name,e)}}renderList();if(selected<0&&photos.length)select(0);$('status').textContent=added?`${added} photo${added>1?'s':''} loaded`:'No supported images found'}
+async function addFiles(list){
+  let added=0;
+  const now=Date.now();
+  for(const file of list){
+    if(!file.type.startsWith('image/')&&!/\.(png|jpe?g|webp|heic|heif|dng|raw)$/i.test(file.name))continue;
+    try{
+      const im=await loadImage(file);
+      const rec={id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}_${Math.random().toString(36).slice(2)}`,file,name:file.name,url:URL.createObjectURL(file),width:im.naturalWidth,height:im.naturalHeight,addedAt:now+added,e:{z:1,x:0,y:0,r:0,b:1,c:1}}; photos.unshift(rec); await dbPutPhoto(rec);
+      added++;
+    }catch(e){console.warn('Cannot decode',file.name,e)}
+  }
+  photos.sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
+  renderList();
+  if(added){ selected=0; select(0); }
+  $('status').textContent=added?`${added} photo${added>1?'s':''} loaded · newest first`:'No supported images found';
+}
+
 $('pick').onclick=()=>$('files').click();$('files').addEventListener('change',async e=>{await addFiles([...e.target.files]);e.target.value=''});$('drop').onclick=()=>$('files').click();$('drop').ondragover=e=>{e.preventDefault();$('drop').style.background='#eaf2ff'};$('drop').ondragleave=()=>{$('drop').style.background=''};$('drop').ondrop=e=>{e.preventDefault();$('drop').style.background='';addFiles([...e.dataTransfer.files])};
 function select(i){if(i<0||i>=photos.length)return;selected=i;const e=photos[i].e; $('zoom').value=e.z;$('x').value=e.x;$('y').value=e.y;$('rot').value=e.r;$('bright').value=e.b;$('contrast').value=e.c;renderList();drawPreview()}
 function updateReadouts(){if(selected<0)return;const e=photos[selected].e;$('zv').textContent=Math.round(e.z*100)+'%';$('xv').textContent=e.x;$('yv').textContent=e.y;$('rv').textContent=e.r+'°'}
-[['zoom','z'],['x','x'],['y','y'],['rot','r'],['bright','b'],['contrast','c']].forEach(([id,key])=>$(id).addEventListener('input',()=>{if(selected<0)return;photos[selected].e[key]=Number($(id).value);updateReadouts();drawPreview()}));['project','custom'].forEach(id=>$(id).addEventListener('input',drawPreview));
+[['zoom','z'],['x','x'],['y','y'],['rot','r'],['bright','b'],['contrast','c']].forEach(([id,key])=>$(id).addEventListener('input',()=>{if(selected<0)return;photos[selected].e[key]=Number($(id).value);dbPutPhoto(photos[selected]);updateReadouts();drawPreview()}));['project','custom'].forEach(id=>$(id).addEventListener('input',drawPreview));
 async function drawComposition(target,ow,oh){target.clearRect(0,0,ow,oh);target.fillStyle='#202832';target.fillRect(0,0,ow,oh);if(selected<0)return false;const p=photos[selected];let im;try{im=await loadImage(p.file)}catch{return false}const e=p.e,scale=Math.max(ow/im.naturalWidth,oh/im.naturalHeight);target.save();target.translate(ow/2+e.x*(ow/W),oh/2+e.y*(oh/H));target.rotate(e.r*Math.PI/180);target.scale(e.z,e.z);target.filter=`brightness(${e.b}) contrast(${e.c})`;const dw=im.naturalWidth*scale,dh=im.naturalHeight*scale;target.drawImage(im,-dw/2,-dh/2,dw,dh);target.restore();target.filter='none';if(overlay)target.drawImage(overlay,0,0,ow,oh);const project=$('project').value.trim(),custom=$('custom').value.trim();if(project||custom){const s=ow/W;target.fillStyle='#000b';target.fillRect(18*s,(H-58)*s,(W-36)*s,40*s);target.fillStyle='#fff';target.font=`bold ${13*s}px system-ui`;target.fillText(project,30*s,(H-35)*s);target.font=`${10*s}px system-ui`;target.fillText(custom,30*s,(H-19)*s)}return true}
 async function drawPreview(){updateReadouts();const ok=await drawComposition(ctx,W,H);$('empty').style.display=(selected>=0&&ok)?'none':'block'}
 function chosenResolution(){const v=$('resolution').value;if(v==='original'&&selected>=0)return [photos[selected].width,photos[selected].height];if(v==='custom')return [Math.max(100,Math.min(12000,parseInt($('customW').value)||1920)),Math.max(100,Math.min(12000,parseInt($('customH').value)||1609))];return v.split('x').map(Number)}
 function outputName(){const prefix=($('project').value||'DOC').trim().replace(/[^\w-]+/g,'_')||'DOC';return `${prefix}_${String(selected+1).padStart(3,'0')}.jpg`}
 async function exportCurrent(){if(selected<0){toast('Upload/select a photo first.');return}const [ow,oh]=chosenResolution(),out=document.createElement('canvas');out.width=ow;out.height=oh;const octx=out.getContext('2d',{alpha:false});if(!(await drawComposition(octx,ow,oh))){toast('Could not render this photo.');return}out.toBlob(blob=>{if(!blob)return toast('Export failed.');const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=outputName();a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('status').textContent=`Saved ${ow} × ${oh}`;toast(`Saved ${ow} × ${oh} JPG`)},'image/jpeg',.94)}
-$('save').onclick=exportCurrent;$('resolution').onchange=()=>{const c=$('resolution').value==='custom';$('customW').classList.toggle('hidden',!c);$('customH').classList.toggle('hidden',!c);$('times').classList.toggle('hidden',!c)};$('reset').onclick=()=>{if(selected<0)return;photos[selected].e={z:1,x:0,y:0,r:0,b:1,c:1};select(selected)};
+$('save').onclick=exportCurrent;
+async function exportBatchZip(){
+  if(!photos.length){toast('No photos to download.');return}
+  if(typeof JSZip==='undefined'){toast('ZIP engine unavailable.');return}
+  const zip=new JSZip();
+  const original=selected;
+  const chosen=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index));
+  const indices=chosen.length?chosen:[...photos.keys()];
+  let done=0;
+  toast(`Preparing ${indices.length} photo${indices.length>1?'s':''}…`);
+  for(const i of indices){
+    selected=i;
+    const [ow,oh]=chosenResolution();
+    const out=document.createElement('canvas'); out.width=ow; out.height=oh;
+    const octx=out.getContext('2d',{alpha:false});
+    if(await drawComposition(octx,ow,oh)){
+      const blob=await new Promise(r=>out.toBlob(r,'image/jpeg',.96));
+      if(blob) zip.file(outputName(),blob);
+    }
+    done++;
+  }
+  selected=original; if(original>=0) drawPreview();
+  const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true},m=>{ $('status').textContent=`Zipping ${Math.round(m.percent)}%`; });
+  const url=URL.createObjectURL(blob),a=document.createElement('a'); a.href=url; a.download=`${(($('project').value||'DocuFrame').trim().replace(/[^\w-]+/g,'_')||'DocuFrame')}_photos.zip`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),2000); toast(`Batch ZIP ready · ${indices.length} photo${indices.length>1?'s':''}`); $('status').textContent=`ZIP exported · ${indices.length} photos`;
+}
+$('batchZip').onclick=exportBatchZip; $('galleryZip').onclick=exportBatchZip;
+$('resolution').onchange=()=>{const c=$('resolution').value==='custom';$('customW').classList.toggle('hidden',!c);$('customH').classList.toggle('hidden',!c);$('times').classList.toggle('hidden',!c)};$('reset').onclick=()=>{if(selected<0)return;photos[selected].e={z:1,x:0,y:0,r:0,b:1,c:1};dbPutPhoto(photos[selected]);select(selected)};
 $('tpl').onclick=()=>$('modal').classList.remove('hidden');$('closeTpl').onclick=()=>$('modal').classList.add('hidden');$('templateFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{overlay=await loadImage(f);overlayURL=URL.createObjectURL(f);$('templatePreview').src=overlayURL;$('modal').classList.add('hidden');drawPreview();toast('Template loaded')}catch{toast('Template PNG could not be loaded')}};
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}cameraTrack=null}
 async function startCamera(){stopCamera();try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:camFacing},width:{ideal:3840},height:{ideal:2160}},audio:false});$('video').srcObject=stream;cameraTrack=stream.getVideoTracks()[0];const s=cameraTrack.getSettings();$('camQuality').textContent=`Live: ${s.width||'?'} × ${s.height||'?'} · output can use native`;liveDraw()}catch(e){toast('Camera needs permission and HTTPS/localhost')}}
@@ -23,10 +98,10 @@ $('cameraResolution').onchange=()=>{const c=$('cameraResolution').value==='custo
 function liveDraw(){if($('cameraModal').classList.contains('hidden'))return;const v=$('video'),l=$('live'),x=l.getContext('2d');x.clearRect(0,0,W,H);if(v.videoWidth&&v.videoHeight){const sc=Math.max(W/v.videoWidth,H/v.videoHeight),dw=v.videoWidth*sc,dh=v.videoHeight*sc;x.drawImage(v,(W-dw)/2,(H-dh)/2,dw,dh)}if(overlay)x.drawImage(overlay,0,0,W,H);requestAnimationFrame(liveDraw)}
 function cameraSize(){const v=$('cameraResolution').value;if(v==='native'){return [cameraTrack?.getSettings().width||$('video').videoWidth,cameraTrack?.getSettings().height||$('video').videoHeight]}if(v==='custom')return [Math.max(100,parseInt($('camW').value)||1920),Math.max(100,parseInt($('camH').value)||1080)];return v.split('x').map(Number)}
 $('capture').onclick=async()=>{const v=$('video');if(!v.videoWidth){toast('Camera is not ready yet');return}const [ow,oh]=cameraSize(),q=document.createElement('canvas');q.width=ow;q.height=oh;const x=q.getContext('2d',{alpha:false});const sc=Math.max(ow/v.videoWidth,oh/v.videoHeight),dw=v.videoWidth*sc,dh=v.videoHeight*sc;x.drawImage(v,(ow-dw)/2,(oh-dh)/2,dw,dh);if(overlay)x.drawImage(overlay,0,0,ow,oh);q.toBlob(async b=>{if(!b)return;const f=new File([b],`CAM_${Date.now()}_${ow}x${oh}.jpg`,{type:'image/jpeg'});await addFiles([f]);$('cameraModal').classList.add('hidden');stopCamera();toast(`Captured ${ow} × ${oh}`)},'image/jpeg',.96)};
-function openGallery(){renderGallery();$('galleryModal').classList.remove('hidden')}function renderGallery(){ $('galleryCount').textContent=photos.length;const g=$('galleryGrid');g.innerHTML='';if(!photos.length){g.innerHTML='<div class="empty">No photos yet</div>';return}photos.forEach((p,i)=>{const card=document.createElement('div');card.className='gitem';const cb=document.createElement('input');cb.type='checkbox';cb.dataset.index=i;cb.className='gcheck';const im=document.createElement('img');im.src=p.url;im.loading='lazy';const cap=document.createElement('div');cap.textContent=`${i+1}. ${p.name}`;card.append(cb,im,cap);card.onclick=e=>{if(e.target!==cb){select(i);renderGallery()}};g.append(card)})}
-$('galleryBtn').onclick=openGallery;$('closeGallery').onclick=()=>$('galleryModal').classList.add('hidden');$('selectAll').onclick=()=>{document.querySelectorAll('.gcheck').forEach(c=>c.checked=true)};$('deleteSelected').onclick=()=>{const ids=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index)).sort((a,b)=>b-a);if(!ids.length)return toast('Select photos to delete');ids.forEach(i=>{URL.revokeObjectURL(photos[i].url);photos.splice(i,1);if(selected===i)selected=-1;else if(selected>i)selected--});if(selected<0&&photos.length)selected=0;renderList();if(selected>=0)select(selected);else drawPreview();renderGallery();toast(`${ids.length} photo${ids.length>1?'s':''} deleted`)};$('editSelected').onclick=()=>{const checks=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index));if(checks.length!==1)return toast('Select exactly one photo to edit');select(checks[0]);$('galleryModal').classList.add('hidden');$('status').textContent=`Editing photo ${checks[0]+1}`};
+function openGallery(){renderGallery();$('galleryModal').classList.remove('hidden')}function renderGallery(){ $('galleryCount').textContent=photos.length;const g=$('galleryGrid');g.innerHTML='';if(!photos.length){g.innerHTML='<div class="empty">No photos yet</div>';return}photos.forEach((p,i)=>{const card=document.createElement('div');card.className='gitem '+(i===selected?'current':'');const cb=document.createElement('input');cb.type='checkbox';cb.dataset.index=i;cb.className='gcheck';const im=document.createElement('img');im.src=p.url;im.loading='lazy';const cap=document.createElement('div');cap.textContent=`${i+1}. ${p.name}`;card.append(cb,im,cap);card.onclick=e=>{if(e.target===cb)return;cb.checked=!cb.checked;select(i);card.classList.toggle('checked',cb.checked)};cb.onclick=e=>e.stopPropagation();g.append(card)})}
+$('galleryBtn').onclick=openGallery;$('closeGallery').onclick=()=>$('galleryModal').classList.add('hidden');$('selectAll').onclick=()=>{document.querySelectorAll('.gcheck').forEach(c=>c.checked=true)};$('deleteSelected').onclick=async()=>{const ids=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index)).sort((a,b)=>b-a);if(!ids.length)return toast('Select photos to delete');for(const i of ids){const rec=photos[i]; if(rec){await dbDeletePhoto(rec.id); URL.revokeObjectURL(rec.url); photos.splice(i,1); if(selected===i)selected=-1; else if(selected>i)selected--;}}if(selected<0&&photos.length)selected=0;renderList();if(selected>=0)select(selected);else drawPreview();renderGallery();toast(`${ids.length} photo${ids.length>1?'s':''} deleted`)};$('editSelected').onclick=()=>{const checks=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index));if(checks.length!==1)return toast('Select exactly one photo to edit');select(checks[0]);$('galleryModal').classList.add('hidden');$('status').textContent=`Editing photo ${checks[0]+1}`};
 $('infoBtn').onclick=()=>{$('edit').classList.add('hidden');$('info').classList.remove('hidden');$('status').textContent='Info panel';};
-renderList();updateReadouts();
+renderList();updateReadouts(); dbLoadPhotos();
 
 /* --- Camera reliability/mobile fullscreen patch --- */
 const cameraModal = $('cameraModal');
