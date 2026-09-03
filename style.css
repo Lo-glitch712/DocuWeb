@@ -117,3 +117,7 @@ button, select, input { -webkit-tap-highlight-color: transparent; }
 .mobile-nav{pointer-events:auto!important;touch-action:manipulation;}
 .mobile-nav .nav-item{pointer-events:auto!important;position:relative;z-index:1;-webkit-user-select:none;user-select:none;}
 @media (max-width:850px){.mobile-nav{display:grid!important;bottom:0;inset-inline:0;}}
+
+/* Final navigation polish */
+@media (min-width:851px){.app>header .actions{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow:visible}.app>header .actions button{white-space:nowrap}.app>header .actions #cam{background:var(--blue);color:#fff;border-color:var(--blue)}.mobile-nav{display:none!important}}
+@media (max-width:850px){.app>header .actions{display:none!important}}
