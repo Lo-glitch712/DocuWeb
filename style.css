@@ -62,3 +62,50 @@ html.camera-open, body.camera-open{width:100%;height:100%;overflow:hidden;oversc
 }
 @media (min-width:500px) and (max-width:850px){.gallery-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:360px){.gallery-grid{gap:5px}.gallery-actions button{padding:7px 9px;font-size:10px}.gitem div:last-child{font-size:9px}}
+
+/* ===== Responsive polish v3 ===== */
+html { -webkit-text-size-adjust: 100%; }
+button, select, input { -webkit-tap-highlight-color: transparent; }
+.actions { overflow-x:auto; flex-wrap:nowrap; scrollbar-width:none; }
+.actions::-webkit-scrollbar { display:none; }
+.actions button { flex:0 0 auto; white-space:nowrap; }
+.mobile-nav{display:none}
+@media (max-width:850px){
+  .app>header{gap:8px}
+  .brand{flex:0 0 auto}
+  .actions{flex:1;justify-content:flex-start;padding-bottom:2px}
+  .layout{padding-bottom:68px}
+  .mobile-nav{position:fixed;left:0;right:0;bottom:0;height:64px;display:grid;grid-template-columns:repeat(5,1fr);gap:4px;padding:5px max(6px, env(safe-area-inset-left)) max(5px, env(safe-area-inset-bottom));background:rgba(255,255,255,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid #dfe5eb;z-index:250;box-shadow:0 -8px 22px rgba(20,35,50,.08)}
+  .mobile-nav .nav-item{border:0;background:transparent;min-height:54px;padding:4px 2px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:18px;font-weight:800;color:#5d6a76}
+  .mobile-nav .nav-item span{font-size:9px;font-weight:800}
+  .mobile-nav .camera-nav{color:#fff;background:var(--blue);box-shadow:0 5px 14px rgba(36,87,214,.28)}
+  .gallery-modal{padding:0}
+  .gallery-card{width:100vw;height:100dvh;border-radius:0;padding:10px max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right));}
+  .gallery-actions{position:sticky;top:0;z-index:3;background:#f8fafc;padding-bottom:8px}
+  .gallery-actions button{flex:1;min-height:42px}
+  .gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .gitem{padding:5px;border-radius:10px}
+  .gitem img{aspect-ratio:1/1}
+  .gcheck{width:22px;height:22px;top:8px;left:8px}
+}
+@media (max-width:420px){
+  .app>header{padding:8px}
+  .brand>strong{padding:8px}
+  .actions button#tpl,.actions button#infoBtn{display:none}
+  .mobile-nav{height:66px}
+  .camera-controls{display:grid;grid-template-columns:1fr 1fr 64px;align-items:center;gap:7px;padding:8px 10px}
+  .camera-controls label{min-width:0}
+  .camera-controls select{min-width:0;width:100%;max-width:none}
+  .camera-controls #camCustom{grid-column:1 / span 2;justify-content:center}
+  .capture{width:60px;height:60px}
+}
+@media (orientation:landscape) and (max-height:560px){
+  .mobile-nav{height:54px}
+  .mobile-nav .nav-item{min-height:46px; font-size:15px;}
+  .mobile-nav .nav-item span{font-size:8px}
+  .layout{padding-bottom:56px}
+}
+/* Avoid iOS 100vh gaps and keep camera controls visible. */
+.camera-modal,.camera-ui{min-height:100svh;height:100dvh}
+.camera-ui{padding-bottom:max(env(safe-area-inset-bottom),6px)}
+.camstage video{image-rendering:auto}

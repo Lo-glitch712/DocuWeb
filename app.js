@@ -149,16 +149,50 @@ async function captureCameraImproved(){
   const orientation=cameraOrientation?.value||'auto';
   if(orientation==='portrait' && ow>oh)[ow,oh]=[oh,ow];
   if(orientation==='landscape' && oh>ow)[ow,oh]=[oh,ow];
-  const q=document.createElement('canvas');q.width=ow;q.height=oh;
-  const x=q.getContext('2d',{alpha:false,desynchronized:true});
-  x.imageSmoothingEnabled=true;x.imageSmoothingQuality='high';
-  const sc=Math.max(ow/v.videoWidth,oh/v.videoHeight),dw=v.videoWidth*sc,dh=v.videoHeight*sc;
-  x.drawImage(v,(ow-dw)/2,(oh-dh)/2,dw,dh);
-  if(overlay)x.drawImage(overlay,0,0,ow,oh);
+
+  // For Native mode, prefer ImageCapture.takePhoto() so the saved file uses
+  // the camera's still-photo pipeline instead of a lower-quality video frame.
+  let sourceBlob=null;
+  if(desired==='native' && cameraImageCapture && cameraImageCapture.takePhoto){
+    try { sourceBlob=await cameraImageCapture.takePhoto(); }
+    catch(e) { sourceBlob=null; }
+  }
+
+  const source = sourceBlob ? await createImageBitmap(sourceBlob) : v;
+  const srcW=source.width||source.videoWidth, srcH=source.height||source.videoHeight;
+  const q=document.createElement('canvas');
+  if(desired==='native') { ow=srcW; oh=srcH; }
+  q.width=ow; q.height=oh;
+  const x=q.getContext('2d',{alpha:false});
+  x.imageSmoothingEnabled=true; x.imageSmoothingQuality='high';
+  const sc=Math.max(ow/srcW,oh/srcH),dw=srcW*sc,dh=srcH*sc;
+  x.drawImage(source,(ow-dw)/2,(oh-dh)/2,dw,dh);
+  if(overlay) x.drawImage(overlay,0,0,ow,oh);
+  if(sourceBlob && source.close) source.close();
   q.toBlob(async b=>{
     if(!b){toast('Capture failed');return}
     const f=new File([b],`CAM_${Date.now()}_${ow}x${oh}.jpg`,{type:'image/jpeg',lastModified:Date.now()});
-    await addFiles([f]); cameraModal.classList.add('hidden');stopCamera();await exitCameraFullscreen();toast(`Captured ${ow} × ${oh} · high quality`);
-  },'image/jpeg',1.0);
+    await addFiles([f]);
+    cameraModal.classList.add('hidden');stopCamera();await exitCameraFullscreen();
+    toast(`Captured ${ow} × ${oh} · camera quality preserved`);
+  },'image/jpeg',0.98);
 }
 $('capture').onclick=captureCameraImproved;
+
+/* Mobile quick navigation */
+$('mImport')?.addEventListener('click',()=>$('pick').click());
+$('mGallery')?.addEventListener('click',openGallery);
+$('mCamera')?.addEventListener('click',()=>$('cam').click());
+$('mTemplate')?.addEventListener('click',()=>{ $('modal').classList.remove('hidden'); });
+$('mInfo')?.addEventListener('click',()=>$('infoBtn').click());
+
+// Improve continuous autofocus after the camera becomes live.
+async function ensureAutofocus(){
+  if(!cameraTrack?.getCapabilities) return;
+  const caps=cameraTrack.getCapabilities();
+  if(!caps.focusMode) return;
+  try{
+    if(caps.focusMode.includes('continuous')) await cameraTrack.applyConstraints({advanced:[{focusMode:'continuous'}]});
+  }catch(e){}
+}
+$('video').addEventListener('loadedmetadata',()=>setTimeout(ensureAutofocus,120));
