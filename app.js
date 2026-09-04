@@ -3,13 +3,30 @@ const canvas=$('canvas'),ctx=canvas.getContext('2d',{alpha:false});
 let photos=[],selected=-1,overlay=null,overlayURL=null,stream=null,camFacing='environment',cameraTrack=null;
 
 /* --- Persistent local photo storage (IndexedDB) --- */
-const DB_NAME='docuframe_local_v1', DB_VER=1, PHOTO_STORE='photos';
+const DB_NAME='docuframe_local_v2', DB_VER=1, PHOTO_STORE='photos', SETTINGS_STORE='settings';
 let db=null;
+async function dbPutSetting(key,value){
+  try{ const d=await openPhotoDB(); await new Promise((res,rej)=>{ const tx=d.transaction(SETTINGS_STORE,'readwrite'); tx.objectStore(SETTINGS_STORE).put({key,value}); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }catch(e){ console.warn('Setting persistence failed',e); }
+}
+async function dbGetSetting(key){
+  try{ const d=await openPhotoDB(); return await new Promise((res,rej)=>{ const tx=d.transaction(SETTINGS_STORE,'readonly'); const r=tx.objectStore(SETTINGS_STORE).get(key); r.onsuccess=()=>res(r.result?.value ?? null); r.onerror=()=>rej(r.error); }); }catch(e){ console.warn('Setting restore failed',e); return null; }
+}
+async function restoreAppSettings(){
+  try{
+    const savedOverlay=await dbGetSetting('overlay');
+    if(savedOverlay){ overlay=await loadImage(savedOverlay.blob); overlayURL=URL.createObjectURL(savedOverlay.blob); $('templatePreview').src=overlayURL; }
+    const savedProject=await dbGetSetting('project');
+    const savedCustom=await dbGetSetting('custom');
+    if(savedProject!==null) $('project').value=savedProject;
+    if(savedCustom!==null) $('custom').value=savedCustom;
+    drawPreview();
+  }catch(e){ console.warn('App settings restore failed',e); }
+}
 function openPhotoDB(){
   if(db) return Promise.resolve(db);
   return new Promise((resolve,reject)=>{
     const req=indexedDB.open(DB_NAME,DB_VER);
-    req.onupgradeneeded=()=>{ const d=req.result; if(!d.objectStoreNames.contains(PHOTO_STORE)){ const st=d.createObjectStore(PHOTO_STORE,{keyPath:'id'}); st.createIndex('addedAt','addedAt'); } };
+    req.onupgradeneeded=()=>{ const d=req.result; if(!d.objectStoreNames.contains(PHOTO_STORE)){ const st=d.createObjectStore(PHOTO_STORE,{keyPath:'id'}); st.createIndex('addedAt','addedAt'); } if(!d.objectStoreNames.contains(SETTINGS_STORE)){ d.createObjectStore(SETTINGS_STORE,{keyPath:'key'}); } };
     req.onsuccess=()=>{ db=req.result; resolve(db); };
     req.onerror=()=>reject(req.error);
   });
@@ -56,7 +73,7 @@ async function addFiles(list){
 $('pick').onclick=()=>{$('files').click()};$('files').addEventListener('change',async e=>{await addFiles([...e.target.files]);e.target.value=''});$('drop').onclick=()=>{$('files').click()};$('drop').ondragover=e=>{e.preventDefault();$('drop').style.background='#eaf2ff'};$('drop').ondragleave=()=>{$('drop').style.background=''};$('drop').ondrop=e=>{e.preventDefault();$('drop').style.background='';addFiles([...e.dataTransfer.files])};
 function select(i){if(i<0||i>=photos.length)return;selected=i;const e=photos[i].e; $('zoom').value=e.z;$('x').value=e.x;$('y').value=e.y;$('rot').value=e.r;$('bright').value=e.b;$('contrast').value=e.c;renderList();drawPreview()}
 function updateReadouts(){if(selected<0)return;const e=photos[selected].e;$('zv').textContent=Math.round(e.z*100)+'%';$('xv').textContent=e.x;$('yv').textContent=e.y;$('rv').textContent=e.r+'°'}
-[['zoom','z'],['x','x'],['y','y'],['rot','r'],['bright','b'],['contrast','c']].forEach(([id,key])=>$(id).addEventListener('input',()=>{if(selected<0)return;photos[selected].e[key]=Number($(id).value);dbPutPhoto(photos[selected]);updateReadouts();drawPreview()}));['project','custom'].forEach(id=>$(id).addEventListener('input',drawPreview));
+[['zoom','z'],['x','x'],['y','y'],['rot','r'],['bright','b'],['contrast','c']].forEach(([id,key])=>$(id).addEventListener('input',()=>{if(selected<0)return;photos[selected].e[key]=Number($(id).value);dbPutPhoto(photos[selected]);updateReadouts();drawPreview()}));['project','custom'].forEach(id=>$(id).addEventListener('input',()=>{dbPutSetting(id,$(id).value);drawPreview();}));
 async function drawComposition(target,ow,oh){target.clearRect(0,0,ow,oh);target.fillStyle='#202832';target.fillRect(0,0,ow,oh);if(selected<0)return false;const p=photos[selected];let im;try{im=await loadImage(p.file)}catch{return false}const e=p.e,scale=Math.max(ow/im.naturalWidth,oh/im.naturalHeight);target.save();target.translate(ow/2+e.x*(ow/W),oh/2+e.y*(oh/H));target.rotate(e.r*Math.PI/180);target.scale(e.z,e.z);target.filter=`brightness(${e.b}) contrast(${e.c})`;const dw=im.naturalWidth*scale,dh=im.naturalHeight*scale;target.drawImage(im,-dw/2,-dh/2,dw,dh);target.restore();target.filter='none';if(overlay)target.drawImage(overlay,0,0,ow,oh);const project=$('project').value.trim(),custom=$('custom').value.trim();if(project||custom){const s=ow/W;target.fillStyle='#000b';target.fillRect(18*s,(H-58)*s,(W-36)*s,40*s);target.fillStyle='#fff';target.font=`bold ${13*s}px system-ui`;target.fillText(project,30*s,(H-35)*s);target.font=`${10*s}px system-ui`;target.fillText(custom,30*s,(H-19)*s)}return true}
 async function drawPreview(){updateReadouts();const ok=await drawComposition(ctx,W,H);$('empty').style.display=(selected>=0&&ok)?'none':'block'}
 function chosenResolution(){const v=$('resolution').value;if(v==='original'&&selected>=0)return [photos[selected].width,photos[selected].height];if(v==='custom')return [Math.max(100,Math.min(12000,parseInt($('customW').value)||1920)),Math.max(100,Math.min(12000,parseInt($('customH').value)||1609))];return v.split('x').map(Number)}
@@ -90,7 +107,7 @@ async function exportBatchZip(){
 }
 $('batchZip').onclick=exportBatchZip; $('galleryZip').onclick=exportBatchZip;
 $('resolution').onchange=()=>{const c=$('resolution').value==='custom';$('customW').classList.toggle('hidden',!c);$('customH').classList.toggle('hidden',!c);$('times').classList.toggle('hidden',!c)};$('reset').onclick=()=>{if(selected<0)return;photos[selected].e={z:1,x:0,y:0,r:0,b:1,c:1};dbPutPhoto(photos[selected]);select(selected)};
-$('tpl').onclick=()=>$('modal').classList.remove('hidden');$('closeTpl').onclick=()=>$('modal').classList.add('hidden');$('templateFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{overlay=await loadImage(f);overlayURL=URL.createObjectURL(f);$('templatePreview').src=overlayURL;$('modal').classList.add('hidden');drawPreview();toast('Template loaded')}catch{toast('Template PNG could not be loaded')}};
+$('tpl').onclick=()=>$('modal').classList.remove('hidden');$('closeTpl').onclick=()=>$('modal').classList.add('hidden');$('templateFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(overlayURL)URL.revokeObjectURL(overlayURL);overlay=await loadImage(f);overlayURL=URL.createObjectURL(f);$('templatePreview').src=overlayURL;await dbPutSetting('overlay',{blob:f,name:f.name});$('modal').classList.add('hidden');drawPreview();renderGallery();toast('Template loaded · saved for all gallery photos')}catch{toast('Template PNG could not be loaded')}};
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}cameraTrack=null}
 async function startCamera(){stopCamera();try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:camFacing},width:{ideal:3840},height:{ideal:2160}},audio:false});$('video').srcObject=stream;cameraTrack=stream.getVideoTracks()[0];const s=cameraTrack.getSettings();$('camQuality').textContent=`Live: ${s.width||'?'} × ${s.height||'?'} · output can use native`;liveDraw()}catch(e){toast('Camera needs permission and HTTPS/localhost')}}
 $('cam').onclick=async()=>{$('cameraModal').classList.remove('hidden');await startCamera()};$('closeCam').onclick=()=>{$('cameraModal').classList.add('hidden');stopCamera()};$('switchCam').onclick=async()=>{camFacing=camFacing==='environment'?'user':'environment';await startCamera()};
@@ -98,10 +115,28 @@ $('cameraResolution').onchange=()=>{const c=$('cameraResolution').value==='custo
 function liveDraw(){if($('cameraModal').classList.contains('hidden'))return;const v=$('video'),l=$('live'),x=l.getContext('2d');x.clearRect(0,0,W,H);if(v.videoWidth&&v.videoHeight){const sc=Math.max(W/v.videoWidth,H/v.videoHeight),dw=v.videoWidth*sc,dh=v.videoHeight*sc;x.drawImage(v,(W-dw)/2,(H-dh)/2,dw,dh)}if(overlay)x.drawImage(overlay,0,0,W,H);requestAnimationFrame(liveDraw)}
 function cameraSize(){const v=$('cameraResolution').value;if(v==='native'){return [cameraTrack?.getSettings().width||$('video').videoWidth,cameraTrack?.getSettings().height||$('video').videoHeight]}if(v==='custom')return [Math.max(100,parseInt($('camW').value)||1920),Math.max(100,parseInt($('camH').value)||1080)];return v.split('x').map(Number)}
 $('capture').onclick=async()=>{const v=$('video');if(!v.videoWidth){toast('Camera is not ready yet');return}const [ow,oh]=cameraSize(),q=document.createElement('canvas');q.width=ow;q.height=oh;const x=q.getContext('2d',{alpha:false});const sc=Math.max(ow/v.videoWidth,oh/v.videoHeight),dw=v.videoWidth*sc,dh=v.videoHeight*sc;x.drawImage(v,(ow-dw)/2,(oh-dh)/2,dw,dh);if(overlay)x.drawImage(overlay,0,0,ow,oh);q.toBlob(async b=>{if(!b)return;const f=new File([b],`CAM_${Date.now()}_${ow}x${oh}.jpg`,{type:'image/jpeg'});await addFiles([f]);$('cameraModal').classList.add('hidden');stopCamera();toast(`Captured ${ow} × ${oh}`)},'image/jpeg',.96)};
-function openGallery(){renderGallery();$('galleryModal').classList.remove('hidden')}function renderGallery(){ $('galleryCount').textContent=photos.length;const g=$('galleryGrid');g.innerHTML='';if(!photos.length){g.innerHTML='<div class="empty">No photos yet</div>';return}photos.forEach((p,i)=>{const card=document.createElement('div');card.className='gitem '+(i===selected?'current':'');const cb=document.createElement('input');cb.type='checkbox';cb.dataset.index=i;cb.className='gcheck';const im=document.createElement('img');im.src=p.url;im.loading='lazy';const cap=document.createElement('div');cap.textContent=`${i+1}. ${p.name}`;card.append(cb,im,cap);card.onclick=e=>{if(e.target===cb)return;cb.checked=!cb.checked;select(i);card.classList.toggle('checked',cb.checked)};cb.onclick=e=>e.stopPropagation();g.append(card)})}
+function openGallery(){renderGallery();$('galleryModal').classList.remove('hidden')}
+function renderGallery(){
+  $('galleryCount').textContent=photos.length;
+  const g=$('galleryGrid'); g.innerHTML='';
+  if(!photos.length){g.innerHTML='<div class="empty">No photos yet</div>';return}
+  photos.forEach((p,i)=>{
+    const card=document.createElement('div'); card.className='gitem '+(i===selected?'current':'');
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.dataset.index=i; cb.className='gcheck';
+    const media=document.createElement('div'); media.className='gmedia';
+    const im=document.createElement('img'); im.src=p.url; im.loading='lazy';
+    media.append(im);
+    if(overlay){ const ov=document.createElement('img'); ov.className='gtemplate'; ov.src=overlayURL; ov.alt=''; ov.draggable=false; media.append(ov); }
+    const cap=document.createElement('div'); cap.textContent=`${i+1}. ${p.name}`;
+    card.append(cb,media,cap);
+    card.onclick=e=>{if(e.target===cb)return; cb.checked=!cb.checked; select(i); card.classList.toggle('checked',cb.checked)};
+    cb.onclick=e=>e.stopPropagation(); g.append(card);
+  });
+}
+
 $('galleryBtn').onclick=()=>openGallery();$('closeGallery').onclick=()=>$('galleryModal').classList.add('hidden');$('selectAll').onclick=()=>{document.querySelectorAll('.gcheck').forEach(c=>c.checked=true)};$('deleteSelected').onclick=async()=>{const ids=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index)).sort((a,b)=>b-a);if(!ids.length)return toast('Select photos to delete');for(const i of ids){const rec=photos[i]; if(rec){await dbDeletePhoto(rec.id); URL.revokeObjectURL(rec.url); photos.splice(i,1); if(selected===i)selected=-1; else if(selected>i)selected--;}}if(selected<0&&photos.length)selected=0;renderList();if(selected>=0)select(selected);else drawPreview();renderGallery();toast(`${ids.length} photo${ids.length>1?'s':''} deleted`)};$('editSelected').onclick=()=>{const checks=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index));if(checks.length!==1)return toast('Select exactly one photo to edit');select(checks[0]);$('galleryModal').classList.add('hidden');$('status').textContent=`Editing photo ${checks[0]+1}`};
 function showInfo(){$('edit').classList.add('hidden');$('info').classList.remove('hidden');$('status').textContent='Info panel'}; $('infoBtn').onclick=showInfo; $('infoNav').onclick=showInfo;
-renderList();updateReadouts(); dbLoadPhotos();
+renderList();updateReadouts(); restoreAppSettings(); dbLoadPhotos();
 
 /* --- Camera reliability/mobile fullscreen patch --- */
 const cameraModal = $('cameraModal');

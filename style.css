@@ -121,3 +121,10 @@ button, select, input { -webkit-tap-highlight-color: transparent; }
 /* Final navigation polish */
 @media (min-width:851px){.app>header .actions{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow:visible}.app>header .actions button{white-space:nowrap}.app>header .actions #cam{background:var(--blue);color:#fff;border-color:var(--blue)}.mobile-nav{display:none!important}}
 @media (max-width:850px){.app>header .actions{display:none!important}}
+
+/* Gallery thumbnails show the active template overlay. */
+.gmedia{position:relative;width:100%;aspect-ratio:4/3;overflow:hidden;border-radius:6px;background:#202832}
+.gmedia>img:first-child{display:block;width:100%;height:100%;object-fit:cover;border-radius:6px;background:#202832}
+.gmedia .gtemplate{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;border-radius:6px}
+.gitem.current{outline:2px solid var(--blue);outline-offset:-2px}
+.gitem.checked{box-shadow:0 0 0 2px var(--blue) inset}
