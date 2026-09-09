@@ -491,7 +491,7 @@ select,
   inset: 0;
   background: rgba(10, 22, 20, 0.42);
   backdrop-filter: blur(3px);
-  z-index: 90;
+  z-index: 260;
   animation: fade-in 180ms ease both;
 }
 
@@ -501,7 +501,7 @@ select,
   right: 0;
   bottom: 0;
   width: min(360px, 92vw);
-  z-index: 95;
+  z-index: 270;
   background: rgba(255, 255, 255, 0.97);
   border-left: 1px solid var(--line-soft);
   box-shadow: -24px 0 60px rgba(16, 32, 31, 0.18);
@@ -1264,7 +1264,8 @@ body.camera-open {
     right: 0;
     bottom: 0;
     width: 100%;
-    max-height: 86dvh;
+    height: auto;
+    max-height: 85dvh;
     border-left: 0;
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
@@ -1272,7 +1273,13 @@ body.camera-open {
     animation: sheet-up 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
+  .drawer-body {
+    min-height: 0;
+  }
+
   .drawer-foot {
+    position: sticky;
+    bottom: 0;
     padding-bottom: calc(14px + var(--safe-b));
   }
 
