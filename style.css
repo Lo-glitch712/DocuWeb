@@ -899,7 +899,9 @@ select,
   font-size: 0.86rem;
   font-weight: 600;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
-  z-index: 200;
+  /* Above every overlay, including the fullscreen camera, so feedback is
+     never hidden behind a modal. */
+  z-index: 10000;
   animation: toast-in 240ms ease both;
 }
 
@@ -1279,6 +1281,16 @@ body.camera-open {
   justify-content: stretch;
   padding: 0;
   z-index: 500;
+}
+
+/* Export and Drive sheets can be launched from inside the gallery, so they
+   have to stack above it. */
+#exportModal {
+  z-index: 600;
+}
+
+#driveModal {
+  z-index: 620;
 }
 
 .gallery-card {
