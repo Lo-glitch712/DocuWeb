@@ -105,7 +105,7 @@ async function exportBatchZip(){
   const url=URL.createObjectURL(blob),a=document.createElement('a'); a.href=url; a.download=`${(($('project').value||'DocuFrame').trim().replace(/[^\w-]+/g,'_')||'DocuFrame')}_photos.zip`; a.click();
   setTimeout(()=>URL.revokeObjectURL(url),2000); toast(`Batch ZIP ready · ${indices.length} photo${indices.length>1?'s':''}`); $('status').textContent=`ZIP exported · ${indices.length} photos`;
 }
-$('batchZip').onclick=exportBatchZip; $('galleryZip').onclick=exportBatchZip;
+if($('galleryZip')) $('galleryZip').onclick=exportBatchZip;
 $('resolution').onchange=()=>{const c=$('resolution').value==='custom';$('customW').classList.toggle('hidden',!c);$('customH').classList.toggle('hidden',!c);$('times').classList.toggle('hidden',!c)};$('reset').onclick=()=>{if(selected<0)return;photos[selected].e={z:1,x:0,y:0,r:0,b:1,c:1};dbPutPhoto(photos[selected]);select(selected)};
 $('tpl').onclick=()=>$('modal').classList.remove('hidden');$('closeTpl').onclick=()=>$('modal').classList.add('hidden');$('templateFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(overlayURL)URL.revokeObjectURL(overlayURL);overlay=await loadImage(f);overlayURL=URL.createObjectURL(f);$('templatePreview').src=overlayURL;await dbPutSetting('overlay',{blob:f,name:f.name});$('modal').classList.add('hidden');drawPreview();renderGallery();toast('Template loaded · saved for all gallery photos')}catch{toast('Template PNG could not be loaded')}};
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}cameraTrack=null}
@@ -603,8 +603,8 @@ function closeExportChooser(){
   $('exportModal')?.classList.add('hidden');
 }
 
-$('batchZip').onclick = openExportChooser;
-$('galleryZip').onclick = openExportChooser;
+if($('batchZip')) $('batchZip').onclick = openExportChooser;
+if($('galleryZip')) $('galleryZip').onclick = openExportChooser;
 $('closeExport')?.addEventListener('click', closeExportChooser);
 $('exportModal')?.addEventListener('click', e => { if(e.target === $('exportModal')) closeExportChooser(); });
 document.addEventListener('keydown', e => { if(e.key === 'Escape') closeExportChooser(); });
