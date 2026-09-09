@@ -1562,19 +1562,17 @@ body.camera-open {
     box-shadow: 0 8px 18px rgba(11, 107, 99, 0.28);
   }
 
+  /* Batch export is the only export path, so every action stays on screen
+     instead of scrolling out of view. */
   .gallery-actions {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .gallery-actions::-webkit-scrollbar {
-    display: none;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .gallery-actions button {
-    flex: 0 0 auto;
-    min-height: 42px;
+    min-height: 44px;
+    width: 100%;
   }
 
   .gallery-grid {
