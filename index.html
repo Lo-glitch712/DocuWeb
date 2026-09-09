@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b3d3a">
+  <meta name="description" content="DocuFrame Documentation Studio — import, frame, annotate, and export field photos.">
+  <title>DocuFrame · Documentation Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">DF</span>
+        <div class="brand-copy">
+          <b>DocuFrame</b>
+          <small>Documentation Studio</small>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" id="pick" class="btn">Import</button>
+        <button type="button" id="galleryBtn" class="btn">Gallery</button>
+        <button type="button" id="cam" class="btn btn-accent">Camera</button>
+        <button type="button" id="tpl" class="btn">Template</button>
+        <button type="button" id="infoNav" class="btn btn-ghost">Info</button>
+        <input id="files" type="file" multiple accept="image/*,.heic,.heif,.dng,.raw" hidden>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="rail">
+        <div class="rail-head">
+          <span>Photos</span>
+          <span id="count" class="count-pill">0</span>
+        </div>
+        <div id="photos" class="photos"></div>
+        <div id="drop" class="drop" role="button" tabindex="0">
+          <strong>Drop images here</strong>
+          <small>PNG · JPG · WebP · HEIC</small>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <div class="stage">
+          <div class="stage-frame">
+            <canvas id="canvas" width="940" height="788"></canvas>
+            <div id="empty" class="empty-hero">
+              <p class="empty-brand">DocuFrame</p>
+              <h1>Frame the field shot.</h1>
+              <p class="empty-lead">Import a photo or open the camera to begin composing documentation stills.</p>
+              <div class="empty-cta">
+                <button type="button" class="btn btn-accent empty-import">Import photos</button>
+                <button type="button" class="btn empty-camera">Open camera</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="toolbar">
+          <span id="status" class="status">Ready</span>
+          <select id="resolution" title="Output resolution">
+            <option value="940x788">940 × 788</option>
+            <option value="1280x1073">1280 × 1073</option>
+            <option value="1920x1609" selected>1920 × 1609</option>
+            <option value="original">Original photo</option>
+            <option value="custom">Custom…</option>
+          </select>
+          <input id="customW" class="custom-size hidden" type="number" min="100" max="12000" value="1920" placeholder="W" aria-label="Custom width">
+          <span class="times hidden" id="times">×</span>
+          <input id="customH" class="custom-size hidden" type="number" min="100" max="12000" value="1609" placeholder="H" aria-label="Custom height">
+          <button type="button" id="reset" class="btn btn-ghost">Reset</button>
+          <button type="button" id="save" class="btn btn-accent">Save JPG</button>
+          <button type="button" id="batchZip" class="btn">Batch ZIP</button>
+          <button type="button" id="infoBtn" class="btn btn-ghost">Info</button>
+        </div>
+      </main>
+
+      <section class="panel">
+        <div id="edit">
+          <div class="section-title">Photo edit</div>
+          <label>Zoom <output id="zv">100%</output><input id="zoom" type="range" min=".2" max="4" step=".01" value="1"></label>
+          <label>X <output id="xv">0</output><input id="x" type="range" min="-900" max="900" value="0"></label>
+          <label>Y <output id="yv">0</output><input id="y" type="range" min="-700" max="700" value="0"></label>
+          <label>Rotation <output id="rv">0°</output><input id="rot" type="range" min="-180" max="180" value="0"></label>
+          <label>Brightness <input id="bright" type="range" min=".5" max="1.5" step=".01" value="1"></label>
+          <label>Contrast <input id="contrast" type="range" min=".5" max="1.5" step=".01" value="1"></label>
+        </div>
+        <div id="info" class="hidden">
+          <div class="section-title">Photo info</div>
+          <label>Project<input id="project" placeholder="Project / location"></label>
+          <label>Custom text<input id="custom" placeholder="Optional caption"></label>
+          <p class="hint">Edits apply to the selected photo. Use Gallery to select, delete, or edit any photo. Photos stay on this device.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Quick actions">
+    <button type="button" id="mImport" class="nav-item"><span class="nav-ico" aria-hidden="true">＋</span><span>Import</span></button>
+    <button type="button" id="mGallery" class="nav-item"><span class="nav-ico" aria-hidden="true">▦</span><span>Gallery</span></button>
+    <button type="button" id="mCamera" class="nav-item camera-nav"><span class="nav-ico" aria-hidden="true">●</span><span>Camera</span></button>
+    <button type="button" id="mTemplate" class="nav-item"><span class="nav-ico" aria-hidden="true">⧉</span><span>Template</span></button>
+    <button type="button" id="mInfo" class="nav-item"><span class="nav-ico" aria-hidden="true">ⓘ</span><span>Info</span></button>
+  </nav>
+
+  <div id="modal" class="modal hidden">
+    <div class="card sheet">
+      <div class="modalhead">Overlay template <button type="button" id="closeTpl" class="icon-btn" aria-label="Close">×</button></div>
+      <p class="modal-lead">Load a transparent PNG frame that sits over every photo and live camera preview.</p>
+      <label class="upload">Choose transparent PNG<input id="templateFile" type="file" accept="image/png" hidden></label>
+      <img id="templatePreview" alt="">
+    </div>
+  </div>
+
+  <div id="cameraModal" class="camera-modal hidden">
+    <div class="camera-ui">
+      <div class="camera-top">
+        <button type="button" id="closeCam" class="icon-btn" aria-label="Close camera">×</button>
+        <div>
+          <b>Camera</b>
+          <small id="camQuality">Native camera capture</small>
+        </div>
+        <button type="button" id="switchCam" class="icon-btn" aria-label="Switch camera">↻</button>
+      </div>
+      <div class="camstage">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="live" width="940" height="788"></canvas>
+        <div id="camGuide">Live template preview · tap to focus</div>
+      </div>
+      <div class="camera-controls">
+        <label>Resolution
+          <select id="cameraResolution">
+            <option value="native">Native / Highest available</option>
+            <option value="1920x1080">1920 × 1080</option>
+            <option value="1280x720">1280 × 720</option>
+            <option value="940x788">940 × 788</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </label>
+        <label>Orientation
+          <select id="cameraOrientation">
+            <option value="auto">Auto</option>
+            <option value="landscape">Landscape</option>
+            <option value="portrait">Portrait</option>
+          </select>
+        </label>
+        <div id="camCustom" class="hidden">
+          <input id="camW" type="number" min="100" max="12000" value="1920" aria-label="Camera width">
+          <span>×</span>
+          <input id="camH" type="number" min="100" max="12000" value="1080" aria-label="Camera height">
+        </div>
+        <button type="button" id="capture" class="capture" aria-label="Capture photo">●</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="galleryModal" class="modal gallery-modal hidden">
+    <div class="gallery-card">
+      <div class="modalhead">
+        <div>Gallery <span id="galleryCount" class="count-pill">0</span></div>
+        <button type="button" id="closeGallery" class="icon-btn" aria-label="Close gallery">×</button>
+      </div>
+      <div class="gallery-actions">
+        <button type="button" id="selectAll" class="btn">Select All</button>
+        <button type="button" id="deleteSelected" class="btn danger">Delete Selected</button>
+        <button type="button" id="editSelected" class="btn btn-accent">Edit Selected</button>
+        <button type="button" id="galleryZip" class="btn">Batch ZIP</button>
+      </div>
+      <div id="galleryGrid" class="gallery-grid"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script src="/jszip.min.js"></script>
+  <script src="/app.js" defer></script>
+  <script>
+    document.querySelector('.empty-import')?.addEventListener('click', () => document.getElementById('files')?.click());
+    document.querySelector('.empty-camera')?.addEventListener('click', () => document.getElementById('cam')?.click());
+  </script>
+</body>
+</html>
