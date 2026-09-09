@@ -17,13 +17,14 @@ Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
 - Live camera capture with multi-shot bursts (1–10), session previews, and per-shot removal
 - Transparent overlay template on live preview and exports
 - Photo settings drawer: framing, exposure, and export labels
-- Gallery select, delete, edit, and batch ZIP download
-- Save composed JPGs to Google Drive
+- Gallery select, delete, and edit
+- Batch export with a choice of local ZIP download or Google Drive upload
 - Local persistence via IndexedDB (same browser/device)
 
 ## Google Drive
 
-**Save to Drive** works out of the box: a web OAuth client ID is preset in `public/drive.js`. Web
+Press **Batch export** and pick **Save to Google Drive**. It works out of the box: a web OAuth
+client ID is preset in `public/drive.js`. Web
 client IDs are public by design — the browser must send one to Google, and Google only accepts it
 from origins listed on the client. No client secret is used or stored.
 

@@ -709,6 +709,74 @@ select,
   border-color: var(--accent);
 }
 
+.export-options {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.export-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.export-option:hover {
+  border-color: var(--accent);
+  box-shadow: 0 10px 24px rgba(11, 107, 99, 0.12);
+  transform: translateY(-1px);
+}
+
+.export-option:active {
+  transform: translateY(0);
+}
+
+.export-ico {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 1.25rem;
+}
+
+.export-copy b {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.export-copy small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.drive-link {
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .drive-status {
   margin: 0 0 14px;
   padding: 9px 12px;
@@ -1432,10 +1500,6 @@ body.camera-open {
 
   .toolbar .status {
     flex-basis: 100%;
-  }
-
-  .toolbar #batchZip {
-    display: none;
   }
 
   .mobile-nav {

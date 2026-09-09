@@ -74,8 +74,7 @@
           <input id="customH" class="custom-size hidden" type="number" min="100" max="12000" value="1609" placeholder="H" aria-label="Custom height">
           <button type="button" id="settingsBtn" class="btn">Photo settings</button>
           <button type="button" id="save" class="btn btn-accent">Save JPG</button>
-          <button type="button" id="driveSave" class="btn">Save to Drive</button>
-          <button type="button" id="batchZip" class="btn">Batch ZIP</button>
+          <button type="button" id="batchZip" class="btn">Batch export</button>
           <button type="button" id="infoBtn" class="btn btn-ghost">Info</button>
         </div>
       </main>
@@ -209,10 +208,33 @@
         <button type="button" id="selectAll" class="btn">Select All</button>
         <button type="button" id="deleteSelected" class="btn danger">Delete Selected</button>
         <button type="button" id="editSelected" class="btn btn-accent">Edit Selected</button>
-        <button type="button" id="galleryZip" class="btn">Batch ZIP</button>
-        <button type="button" id="galleryDrive" class="btn">Save to Drive</button>
+        <button type="button" id="galleryZip" class="btn">Batch export</button>
       </div>
       <div id="galleryGrid" class="gallery-grid"></div>
+    </div>
+  </div>
+
+  <div id="exportModal" class="modal hidden">
+    <div class="card sheet">
+      <div class="modalhead">Batch export <button type="button" id="closeExport" class="icon-btn" aria-label="Close">×</button></div>
+      <p class="modal-lead" id="exportLead">Choose where these photos should go.</p>
+      <div class="export-options">
+        <button type="button" id="exportLocal" class="export-option">
+          <span class="export-ico" aria-hidden="true">⬇</span>
+          <span class="export-copy">
+            <b>Save to this device</b>
+            <small>Downloads one ZIP file with every photo.</small>
+          </span>
+        </button>
+        <button type="button" id="exportDrive" class="export-option">
+          <span class="export-ico" aria-hidden="true">☁</span>
+          <span class="export-copy">
+            <b>Save to Google Drive</b>
+            <small>Uploads each JPG to your DocuFrame folder.</small>
+          </span>
+        </button>
+      </div>
+      <button type="button" id="driveSettingsLink" class="drive-link">Google Drive settings</button>
     </div>
   </div>
 

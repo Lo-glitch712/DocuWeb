@@ -556,7 +556,7 @@ async function saveToDrive(indices){
   const targets = indices?.length ? indices : (selected >= 0 ? [selected] : []);
   if(!targets.length){ toast('Select a photo first'); return; }
 
-  const buttons = [$('driveSave'), $('galleryDrive')].filter(Boolean);
+  const buttons = [$('batchZip'), $('galleryZip')].filter(Boolean);
   buttons.forEach(b => { b.disabled = true; });
   $('status').textContent = 'Preparing upload…';
   try{
@@ -584,11 +584,41 @@ async function saveToDrive(indices){
   }
 }
 
-$('driveSave')?.addEventListener('click', e => {
-  if(e.shiftKey){ openDriveSetup(); return; }
-  saveToDrive();
-});
-$('galleryDrive')?.addEventListener('click', () => {
+/* Batch export chooser: local ZIP or Google Drive. */
+function batchTargets(){
   const checked = [...document.querySelectorAll('.gcheck:checked')].map(c => Number(c.dataset.index));
-  saveToDrive(checked.length ? checked : [...photos.keys()]);
+  return checked.length ? checked : [...photos.keys()];
+}
+function openExportChooser(){
+  if(!photos.length){ toast('No photos to export'); return; }
+  const targets = batchTargets();
+  const lead = $('exportLead');
+  if(lead){
+    const all = targets.length === photos.length;
+    lead.textContent = `${targets.length} photo${targets.length>1?'s':''}${all ? '' : ' selected'} · choose where to save.`;
+  }
+  $('exportModal')?.classList.remove('hidden');
+}
+function closeExportChooser(){
+  $('exportModal')?.classList.add('hidden');
+}
+
+$('batchZip').onclick = openExportChooser;
+$('galleryZip').onclick = openExportChooser;
+$('closeExport')?.addEventListener('click', closeExportChooser);
+$('exportModal')?.addEventListener('click', e => { if(e.target === $('exportModal')) closeExportChooser(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeExportChooser(); });
+
+$('exportLocal')?.addEventListener('click', async () => {
+  closeExportChooser();
+  await exportBatchZip();
+});
+$('exportDrive')?.addEventListener('click', async () => {
+  const targets = batchTargets();
+  closeExportChooser();
+  await saveToDrive(targets);
+});
+$('driveSettingsLink')?.addEventListener('click', () => {
+  closeExportChooser();
+  openDriveSetup();
 });
