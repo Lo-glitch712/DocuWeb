@@ -72,39 +72,54 @@
           <input id="customW" class="custom-size hidden" type="number" min="100" max="12000" value="1920" placeholder="W" aria-label="Custom width">
           <span class="times hidden" id="times">×</span>
           <input id="customH" class="custom-size hidden" type="number" min="100" max="12000" value="1609" placeholder="H" aria-label="Custom height">
-          <button type="button" id="reset" class="btn btn-ghost">Reset</button>
+          <button type="button" id="settingsBtn" class="btn">Photo settings</button>
           <button type="button" id="save" class="btn btn-accent">Save JPG</button>
           <button type="button" id="batchZip" class="btn">Batch ZIP</button>
           <button type="button" id="infoBtn" class="btn btn-ghost">Info</button>
         </div>
       </main>
-
-      <section class="panel">
-        <div id="edit">
-          <div class="section-title">Photo edit</div>
-          <label>Zoom <output id="zv">100%</output><input id="zoom" type="range" min=".2" max="4" step=".01" value="1"></label>
-          <label>X <output id="xv">0</output><input id="x" type="range" min="-900" max="900" value="0"></label>
-          <label>Y <output id="yv">0</output><input id="y" type="range" min="-700" max="700" value="0"></label>
-          <label>Rotation <output id="rv">0°</output><input id="rot" type="range" min="-180" max="180" value="0"></label>
-          <label>Brightness <input id="bright" type="range" min=".5" max="1.5" step=".01" value="1"></label>
-          <label>Contrast <input id="contrast" type="range" min=".5" max="1.5" step=".01" value="1"></label>
-        </div>
-        <div id="info" class="hidden">
-          <div class="section-title">Photo info</div>
-          <label>Project<input id="project" placeholder="Project / location"></label>
-          <label>Custom text<input id="custom" placeholder="Optional caption"></label>
-          <p class="hint">Edits apply to the selected photo. Use Gallery to select, delete, or edit any photo. Photos stay on this device.</p>
-        </div>
-      </section>
     </div>
   </div>
+
+  <div id="settingsScrim" class="drawer-scrim hidden"></div>
+  <aside id="settingsDrawer" class="drawer hidden" aria-label="Photo settings" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <b>Photo settings</b>
+        <small id="settingsTarget">No photo selected</small>
+      </div>
+      <button type="button" id="closeSettings" class="icon-btn" aria-label="Close photo settings">×</button>
+    </div>
+    <div class="drawer-body">
+      <div id="edit">
+        <div class="section-title">Framing</div>
+        <label>Zoom <output id="zv">100%</output><input id="zoom" type="range" min=".2" max="4" step=".01" value="1"></label>
+        <label>Horizontal <output id="xv">0</output><input id="x" type="range" min="-900" max="900" value="0"></label>
+        <label>Vertical <output id="yv">0</output><input id="y" type="range" min="-700" max="700" value="0"></label>
+        <label>Rotation <output id="rv">0°</output><input id="rot" type="range" min="-180" max="180" value="0"></label>
+        <div class="section-title spaced">Exposure</div>
+        <label>Brightness <input id="bright" type="range" min=".5" max="1.5" step=".01" value="1"></label>
+        <label>Contrast <input id="contrast" type="range" min=".5" max="1.5" step=".01" value="1"></label>
+      </div>
+      <div id="info">
+        <div class="section-title spaced">Labels</div>
+        <label>Project<input id="project" placeholder="Project / location"></label>
+        <label>Custom text<input id="custom" placeholder="Optional caption"></label>
+        <p class="hint">Framing and exposure apply to the selected photo. Labels are burned into every export. Photos stay on this device.</p>
+      </div>
+    </div>
+    <div class="drawer-foot">
+      <button type="button" id="reset" class="btn btn-ghost">Reset photo</button>
+      <button type="button" id="applySettings" class="btn btn-accent">Done</button>
+    </div>
+  </aside>
 
   <nav class="mobile-nav" aria-label="Quick actions">
     <button type="button" id="mImport" class="nav-item"><span class="nav-ico" aria-hidden="true">＋</span><span>Import</span></button>
     <button type="button" id="mGallery" class="nav-item"><span class="nav-ico" aria-hidden="true">▦</span><span>Gallery</span></button>
     <button type="button" id="mCamera" class="nav-item camera-nav"><span class="nav-ico" aria-hidden="true">●</span><span>Camera</span></button>
     <button type="button" id="mTemplate" class="nav-item"><span class="nav-ico" aria-hidden="true">⧉</span><span>Template</span></button>
-    <button type="button" id="mInfo" class="nav-item"><span class="nav-ico" aria-hidden="true">ⓘ</span><span>Info</span></button>
+    <button type="button" id="mInfo" class="nav-item"><span class="nav-ico" aria-hidden="true">⚙</span><span>Settings</span></button>
   </nav>
 
   <div id="modal" class="modal hidden">

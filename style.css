@@ -198,7 +198,7 @@ button.btn {
 
 .layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 260px;
+  grid-template-columns: 250px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   gap: 14px;
@@ -206,7 +206,6 @@ button.btn {
 }
 
 .rail,
-.panel,
 .workspace {
   min-width: 0;
   min-height: 0;
@@ -487,13 +486,83 @@ select,
   color: var(--muted);
 }
 
-.panel {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  padding: 16px;
-  box-shadow: var(--shadow);
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 22, 20, 0.42);
+  backdrop-filter: blur(3px);
+  z-index: 90;
+  animation: fade-in 180ms ease both;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(360px, 92vw);
+  z-index: 95;
+  background: rgba(255, 255, 255, 0.97);
+  border-left: 1px solid var(--line-soft);
+  box-shadow: -24px 0 60px rgba(16, 32, 31, 0.18);
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-t);
+  padding-bottom: var(--safe-b);
+  animation: drawer-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.drawer-head b {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.drawer-head small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.drawer-body {
+  flex: 1;
   overflow: auto;
+  padding: 14px 16px 18px;
+}
+
+.drawer-foot {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px calc(14px + var(--safe-b));
+  border-top: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.drawer-foot .btn {
+  flex: 1;
 }
 
 .section-title {
@@ -503,10 +572,16 @@ select,
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
-  margin: 2px 0 18px;
+  margin: 2px 0 14px;
 }
 
-.panel label {
+.section-title.spaced {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.drawer label {
   display: block;
   font-size: 0.78rem;
   font-weight: 700;
@@ -514,22 +589,22 @@ select,
   margin: 14px 0;
 }
 
-.panel output {
+.drawer output {
   float: right;
   color: var(--accent);
   font-weight: 800;
 }
 
-.panel input[type="range"] {
+.drawer input[type="range"] {
   width: 100%;
   display: block;
   margin-top: 8px;
   accent-color: var(--accent);
 }
 
-.panel input[type="text"],
-.panel input:not([type]),
-.panel input[type="number"] {
+.drawer input[type="text"],
+.drawer input:not([type]),
+.drawer input[type="number"] {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--line);
@@ -1150,7 +1225,7 @@ body.camera-open {
 
 @media (max-width: 1100px) {
   .layout {
-    grid-template-columns: 200px minmax(0, 1fr) 230px;
+    grid-template-columns: 210px minmax(0, 1fr);
   }
 
   .stage-frame {
@@ -1183,8 +1258,22 @@ body.camera-open {
     order: 2;
   }
 
-  .panel {
-    order: 3;
+  .drawer {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 86dvh;
+    border-left: 0;
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+    box-shadow: 0 -24px 60px rgba(16, 32, 31, 0.24);
+    animation: sheet-up 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .drawer-foot {
+    padding-bottom: calc(14px + var(--safe-b));
   }
 
   .stage-frame {

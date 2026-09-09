@@ -413,3 +413,52 @@ async function ensureAutofocus(){
   }catch(e){}
 }
 $('video').addEventListener('loadedmetadata',()=>setTimeout(ensureAutofocus,120));
+
+/* Photo settings drawer: framing, exposure, and labels on demand. */
+const settingsDrawer = $('settingsDrawer');
+const settingsScrim = $('settingsScrim');
+
+function settingsOpen(){
+  return settingsDrawer && !settingsDrawer.classList.contains('hidden');
+}
+function updateSettingsTarget(){
+  const target = $('settingsTarget');
+  if(!target) return;
+  target.textContent = selected >= 0 && photos[selected]
+    ? `${selected + 1} of ${photos.length} · ${photos[selected].name}`
+    : 'No photo selected · labels still apply';
+}
+function openSettings(){
+  if(!settingsDrawer) return;
+  updateSettingsTarget();
+  settingsDrawer.classList.remove('hidden');
+  settingsDrawer.setAttribute('aria-hidden','false');
+  settingsScrim?.classList.remove('hidden');
+  $('status').textContent = selected >= 0 ? 'Photo settings open' : 'Photo settings · select a photo to adjust framing';
+}
+function closeSettings(){
+  if(!settingsDrawer) return;
+  settingsDrawer.classList.add('hidden');
+  settingsDrawer.setAttribute('aria-hidden','true');
+  settingsScrim?.classList.add('hidden');
+}
+function toggleSettings(){
+  settingsOpen() ? closeSettings() : openSettings();
+}
+
+$('settingsBtn')?.addEventListener('click', toggleSettings);
+$('closeSettings')?.addEventListener('click', closeSettings);
+$('applySettings')?.addEventListener('click', closeSettings);
+settingsScrim?.addEventListener('click', closeSettings);
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && settingsOpen()) closeSettings(); });
+
+$('infoBtn').onclick = openSettings;
+$('infoNav').onclick = openSettings;
+$('mInfo')?.addEventListener('click', openSettings);
+
+const selectWithSettings = select;
+select = function(i){
+  selectWithSettings(i);
+  updateSettingsTarget();
+};
+updateSettingsTarget();
