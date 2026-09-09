@@ -129,7 +129,13 @@
       <div class="camstage">
         <video id="video" autoplay playsinline></video>
         <canvas id="live" width="940" height="788"></canvas>
+        <div id="shutterFlash" class="shutter-flash" aria-hidden="true"></div>
         <div id="camGuide">Live template preview · tap to focus</div>
+        <div id="shotProgress" class="shot-progress hidden" aria-live="polite"></div>
+        <div class="cam-previews-wrap">
+          <div id="camPreviews" class="cam-previews" aria-label="Captured photo previews"></div>
+          <button type="button" id="doneCamera" class="btn btn-accent cam-done hidden">Done</button>
+        </div>
       </div>
       <div class="camera-controls">
         <label>Resolution
@@ -139,6 +145,15 @@
             <option value="1280x720">1280 × 720</option>
             <option value="940x788">940 × 788</option>
             <option value="custom">Custom…</option>
+          </select>
+        </label>
+        <label>Shots
+          <select id="shotCount" title="How many photos to take">
+            <option value="1" selected>1 shot</option>
+            <option value="2">2 shots</option>
+            <option value="3">3 shots</option>
+            <option value="5">5 shots</option>
+            <option value="10">10 shots</option>
           </select>
         </label>
         <label>Orientation
@@ -153,7 +168,10 @@
           <span>×</span>
           <input id="camH" type="number" min="100" max="12000" value="1080" aria-label="Camera height">
         </div>
-        <button type="button" id="capture" class="capture" aria-label="Capture photo">●</button>
+        <button type="button" id="capture" class="capture" aria-label="Shutter">
+          <span class="capture-ring"></span>
+          <span class="capture-core"></span>
+        </button>
       </div>
     </div>
   </div>

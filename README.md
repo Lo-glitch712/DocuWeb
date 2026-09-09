@@ -14,7 +14,8 @@ Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
 ## Features
 
 - Import PNG, JPG, WebP, HEIC/HEIF (browser support varies)
-- Live camera capture with template preview and tap-to-focus
+- Live camera capture with shutter flash, multi-shot bursts (1–10), and in-camera photo previews
+- Transparent overlay template on live preview and exports
 - Zoom, pan, rotate, brightness, and contrast per photo
 - Project/caption overlays on export
 - Gallery select, delete, edit, and batch ZIP download

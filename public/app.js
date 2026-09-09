@@ -239,8 +239,13 @@ async function startCameraImproved(){
 }
 
 /* Rewire handlers */
-$('cam').onclick=async()=>{await enterCameraFullscreen(); cameraModal.classList.remove('hidden'); await startCameraImproved()};
-$('closeCam').onclick=async()=>{cameraModal.classList.add('hidden');stopCamera();await exitCameraFullscreen()};
+$('cam').onclick=async()=>{
+  clearCameraSessionPreviews();
+  await enterCameraFullscreen();
+  cameraModal.classList.remove('hidden');
+  await startCameraImproved();
+};
+$('closeCam').onclick=async()=>{ await finishCameraSession(); };
 $('switchCam').onclick=async()=>{camFacing=camFacing==='environment'?'user':'environment';await startCameraImproved()};
 if(cameraResolution) cameraResolution.onchange=async()=>{
   const c=cameraResolution.value==='custom'; $('camCustom').classList.toggle('hidden',!c);
@@ -252,16 +257,58 @@ if(cameraOrientation) cameraOrientation.onchange=async()=>{
 window.addEventListener('orientationchange',()=>{if(!cameraModal.classList.contains('hidden')) setTimeout(()=>{updateCameraOrientation();liveDraw()},250)});
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement && !cameraModal.classList.contains('hidden')) cameraLockPage(true)});
 
-async function captureCameraImproved(){
-  const v=$('video'); if(!v.videoWidth){toast('Camera is not ready yet');return}
+/* Session capture: shutter burst + in-camera previews */
+let cameraSessionShots = [];
+let capturingBurst = false;
+
+function fireShutterFlash(){
+  const flash = $('shutterFlash');
+  if(!flash) return;
+  flash.classList.remove('fire');
+  void flash.offsetWidth;
+  flash.classList.add('fire');
+}
+
+function renderCamPreviews(){
+  const strip = $('camPreviews');
+  const done = $('doneCamera');
+  const wrap = document.querySelector('.cam-previews-wrap');
+  if(!strip) return;
+  strip.innerHTML = '';
+  cameraSessionShots.forEach((shot, i) => {
+    const item = document.createElement('div');
+    item.className = 'cam-preview';
+    item.title = shot.name;
+    const img = document.createElement('img');
+    img.src = shot.url;
+    img.alt = `Shot ${i + 1}`;
+    const n = document.createElement('span');
+    n.className = 'cam-preview-n';
+    n.textContent = String(i + 1);
+    item.append(img, n);
+    strip.append(item);
+  });
+  if(done) done.classList.toggle('hidden', cameraSessionShots.length === 0);
+  if(wrap) wrap.classList.toggle('has-shots', cameraSessionShots.length > 0);
+  if(strip.lastElementChild) strip.lastElementChild.scrollIntoView({behavior:'smooth', inline:'end', block:'nearest'});
+}
+
+function clearCameraSessionPreviews(){
+  cameraSessionShots.forEach(shot => { try{ URL.revokeObjectURL(shot.url); }catch(_){} });
+  cameraSessionShots = [];
+  renderCamPreviews();
+  const progress = $('shotProgress');
+  if(progress){ progress.textContent=''; progress.classList.add('hidden'); }
+}
+
+async function takeOneStill(){
+  const v=$('video'); if(!v.videoWidth) throw new Error('Camera is not ready yet');
   const desired=cameraResolution?.value||'native';
   let [ow,oh]=cameraSize();
   const orientation=cameraOrientation?.value||'auto';
   if(orientation==='portrait' && ow>oh)[ow,oh]=[oh,ow];
   if(orientation==='landscape' && oh>ow)[ow,oh]=[oh,ow];
 
-  // For Native mode, prefer ImageCapture.takePhoto() so the saved file uses
-  // the camera's still-photo pipeline instead of a lower-quality video frame.
   let sourceBlob=null;
   if(desired==='native' && cameraImageCapture && cameraImageCapture.takePhoto){
     try { sourceBlob=await cameraImageCapture.takePhoto(); }
@@ -278,16 +325,64 @@ async function captureCameraImproved(){
   const sc=Math.max(ow/srcW,oh/srcH),dw=srcW*sc,dh=srcH*sc;
   x.drawImage(source,(ow-dw)/2,(oh-dh)/2,dw,dh);
   if(overlay) x.drawImage(overlay,0,0,ow,oh);
-  if(sourceBlob && source.close) source.close();
-  q.toBlob(async b=>{
-    if(!b){toast('Capture failed');return}
-    const f=new File([b],`CAM_${Date.now()}_${ow}x${oh}.jpg`,{type:'image/jpeg',lastModified:Date.now()});
-    await addFiles([f]);
-    cameraModal.classList.add('hidden');stopCamera();await exitCameraFullscreen();
-    toast(`Captured ${ow} × ${oh} · camera quality preserved`);
-  },'image/jpeg',0.98);
+  if(sourceBlob && source.close) try{ source.close(); }catch(_){}
+
+  const blob = await new Promise((resolve, reject) => {
+    q.toBlob(b => b ? resolve(b) : reject(new Error('Capture failed')), 'image/jpeg', 0.98);
+  });
+  const f=new File([blob],`CAM_${Date.now()}_${ow}x${oh}.jpg`,{type:'image/jpeg',lastModified:Date.now()});
+  await addFiles([f]);
+  const previewUrl = URL.createObjectURL(blob);
+  cameraSessionShots.push({ url: previewUrl, name: f.name, width: ow, height: oh });
+  renderCamPreviews();
+  return { ow, oh };
+}
+
+async function captureCameraImproved(){
+  if(capturingBurst) return;
+  const v=$('video'); if(!v.videoWidth){toast('Camera is not ready yet');return}
+  const total = Math.max(1, Math.min(20, parseInt($('shotCount')?.value || '1', 10) || 1));
+  const captureBtn = $('capture');
+  const progress = $('shotProgress');
+  capturingBurst = true;
+  captureBtn?.classList.add('shooting');
+  try{
+    for(let i = 0; i < total; i++){
+      if(progress){
+        progress.classList.remove('hidden');
+        progress.textContent = total > 1 ? `Shot ${i + 1} of ${total}` : 'Capturing…';
+      }
+      fireShutterFlash();
+      const result = await takeOneStill();
+      $('camQuality').textContent = `Saved ${result.ow} × ${result.oh} · ${cameraSessionShots.length} in session`;
+      if(i < total - 1) await new Promise(r => setTimeout(r, 280));
+    }
+    toast(total > 1
+      ? `Captured ${total} shots · previews below`
+      : `Captured · preview added`);
+    if(progress){
+      progress.textContent = total > 1 ? `${total} shots saved` : 'Shot saved';
+      clearTimeout(captureCameraImproved._hideProgress);
+      captureCameraImproved._hideProgress = setTimeout(() => progress.classList.add('hidden'), 1200);
+    }
+  }catch(e){
+    toast(e?.message || 'Capture failed');
+  }finally{
+    capturingBurst = false;
+    captureBtn?.classList.remove('shooting');
+  }
 }
 $('capture').onclick=captureCameraImproved;
+
+async function finishCameraSession(){
+  const n = cameraSessionShots.length;
+  cameraModal.classList.add('hidden');
+  stopCamera();
+  await exitCameraFullscreen();
+  clearCameraSessionPreviews();
+  if(n) toast(`${n} photo${n>1?'s':''} ready to edit`);
+}
+$('doneCamera')?.addEventListener('click', finishCameraSession);
 
 /* Mobile quick navigation */
 $('mImport')?.addEventListener('click',()=>{$('files')?.click()});
