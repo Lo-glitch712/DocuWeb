@@ -109,12 +109,8 @@ $('batchZip').onclick=exportBatchZip; $('galleryZip').onclick=exportBatchZip;
 $('resolution').onchange=()=>{const c=$('resolution').value==='custom';$('customW').classList.toggle('hidden',!c);$('customH').classList.toggle('hidden',!c);$('times').classList.toggle('hidden',!c)};$('reset').onclick=()=>{if(selected<0)return;photos[selected].e={z:1,x:0,y:0,r:0,b:1,c:1};dbPutPhoto(photos[selected]);select(selected)};
 $('tpl').onclick=()=>$('modal').classList.remove('hidden');$('closeTpl').onclick=()=>$('modal').classList.add('hidden');$('templateFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(overlayURL)URL.revokeObjectURL(overlayURL);overlay=await loadImage(f);overlayURL=URL.createObjectURL(f);$('templatePreview').src=overlayURL;await dbPutSetting('overlay',{blob:f,name:f.name});$('modal').classList.add('hidden');drawPreview();renderGallery();toast('Template loaded · saved for all gallery photos')}catch{toast('Template PNG could not be loaded')}};
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}cameraTrack=null}
-async function startCamera(){stopCamera();try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:camFacing},width:{ideal:3840},height:{ideal:2160}},audio:false});$('video').srcObject=stream;cameraTrack=stream.getVideoTracks()[0];const s=cameraTrack.getSettings();$('camQuality').textContent=`Live: ${s.width||'?'} × ${s.height||'?'} · output can use native`;liveDraw()}catch(e){toast('Camera needs permission and HTTPS/localhost')}}
-$('cam').onclick=async()=>{$('cameraModal').classList.remove('hidden');await startCamera()};$('closeCam').onclick=()=>{$('cameraModal').classList.add('hidden');stopCamera()};$('switchCam').onclick=async()=>{camFacing=camFacing==='environment'?'user':'environment';await startCamera()};
-$('cameraResolution').onchange=()=>{const c=$('cameraResolution').value==='custom';$('camCustom').classList.toggle('hidden',!c)};
 function liveDraw(){if($('cameraModal').classList.contains('hidden'))return;const v=$('video'),l=$('live'),x=l.getContext('2d');x.clearRect(0,0,W,H);if(v.videoWidth&&v.videoHeight){const sc=Math.max(W/v.videoWidth,H/v.videoHeight),dw=v.videoWidth*sc,dh=v.videoHeight*sc;x.drawImage(v,(W-dw)/2,(H-dh)/2,dw,dh)}if(overlay)x.drawImage(overlay,0,0,W,H);requestAnimationFrame(liveDraw)}
 function cameraSize(){const v=$('cameraResolution').value;if(v==='native'){return [cameraTrack?.getSettings().width||$('video').videoWidth,cameraTrack?.getSettings().height||$('video').videoHeight]}if(v==='custom')return [Math.max(100,parseInt($('camW').value)||1920),Math.max(100,parseInt($('camH').value)||1080)];return v.split('x').map(Number)}
-$('capture').onclick=async()=>{const v=$('video');if(!v.videoWidth){toast('Camera is not ready yet');return}const [ow,oh]=cameraSize(),q=document.createElement('canvas');q.width=ow;q.height=oh;const x=q.getContext('2d',{alpha:false});const sc=Math.max(ow/v.videoWidth,oh/v.videoHeight),dw=v.videoWidth*sc,dh=v.videoHeight*sc;x.drawImage(v,(ow-dw)/2,(oh-dh)/2,dw,dh);if(overlay)x.drawImage(overlay,0,0,ow,oh);q.toBlob(async b=>{if(!b)return;const f=new File([b],`CAM_${Date.now()}_${ow}x${oh}.jpg`,{type:'image/jpeg'});await addFiles([f]);$('cameraModal').classList.add('hidden');stopCamera();toast(`Captured ${ow} × ${oh}`)},'image/jpeg',.96)};
 function openGallery(){renderGallery();$('galleryModal').classList.remove('hidden')}
 function renderGallery(){
   $('galleryCount').textContent=photos.length;
@@ -272,9 +268,10 @@ function fireShutterFlash(){
 function renderCamPreviews(){
   const strip = $('camPreviews');
   const done = $('doneCamera');
-  const wrap = document.querySelector('.cam-previews-wrap');
+  const empty = $('camPreviewsEmpty');
+  const count = $('sessionCount');
   if(!strip) return;
-  strip.innerHTML = '';
+  [...strip.querySelectorAll('.cam-preview')].forEach(el => el.remove());
   cameraSessionShots.forEach((shot, i) => {
     const item = document.createElement('div');
     item.className = 'cam-preview';
@@ -288,9 +285,16 @@ function renderCamPreviews(){
     item.append(img, n);
     strip.append(item);
   });
-  if(done) done.classList.toggle('hidden', cameraSessionShots.length === 0);
-  if(wrap) wrap.classList.toggle('has-shots', cameraSessionShots.length > 0);
-  if(strip.lastElementChild) strip.lastElementChild.scrollIntoView({behavior:'smooth', inline:'end', block:'nearest'});
+  if(empty) empty.classList.toggle('hidden', cameraSessionShots.length > 0);
+  if(count) count.textContent = String(cameraSessionShots.length);
+  if(done){
+    done.disabled = cameraSessionShots.length === 0 || capturingBurst;
+    done.textContent = cameraSessionShots.length
+      ? `Done (${cameraSessionShots.length})`
+      : 'Done';
+  }
+  const last = strip.querySelector('.cam-preview:last-of-type');
+  if(last) last.scrollIntoView({behavior:'smooth', inline:'end', block:'nearest'});
 }
 
 function clearCameraSessionPreviews(){
@@ -346,6 +350,8 @@ async function captureCameraImproved(){
   const progress = $('shotProgress');
   capturingBurst = true;
   captureBtn?.classList.add('shooting');
+  if($('doneCamera')) $('doneCamera').disabled = true;
+  if($('closeCam')) $('closeCam').disabled = true;
   try{
     for(let i = 0; i < total; i++){
       if(progress){
@@ -354,27 +360,33 @@ async function captureCameraImproved(){
       }
       fireShutterFlash();
       const result = await takeOneStill();
-      $('camQuality').textContent = `Saved ${result.ow} × ${result.oh} · ${cameraSessionShots.length} in session`;
+      $('camQuality').textContent = `Saved ${result.ow} × ${result.oh} · keep shooting or tap Done`;
       if(i < total - 1) await new Promise(r => setTimeout(r, 280));
     }
     toast(total > 1
-      ? `Captured ${total} shots · previews below`
-      : `Captured · preview added`);
+      ? `${total} shots added · camera still open`
+      : `Shot saved · camera still open`);
     if(progress){
-      progress.textContent = total > 1 ? `${total} shots saved` : 'Shot saved';
+      progress.textContent = total > 1 ? `${total} shots in session` : 'Shot in session';
       clearTimeout(captureCameraImproved._hideProgress);
-      captureCameraImproved._hideProgress = setTimeout(() => progress.classList.add('hidden'), 1200);
+      captureCameraImproved._hideProgress = setTimeout(() => progress.classList.add('hidden'), 1400);
     }
   }catch(e){
     toast(e?.message || 'Capture failed');
   }finally{
     capturingBurst = false;
     captureBtn?.classList.remove('shooting');
+    if($('closeCam')) $('closeCam').disabled = false;
+    renderCamPreviews();
   }
 }
 $('capture').onclick=captureCameraImproved;
 
 async function finishCameraSession(){
+  if(capturingBurst){
+    toast('Wait — still taking pictures');
+    return;
+  }
   const n = cameraSessionShots.length;
   cameraModal.classList.add('hidden');
   stopCamera();

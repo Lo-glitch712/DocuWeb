@@ -130,11 +130,19 @@
         <video id="video" autoplay playsinline></video>
         <canvas id="live" width="940" height="788"></canvas>
         <div id="shutterFlash" class="shutter-flash" aria-hidden="true"></div>
-        <div id="camGuide">Live template preview · tap to focus</div>
+        <div id="camGuide">Tap preview to focus · shutter keeps the camera open</div>
         <div id="shotProgress" class="shot-progress hidden" aria-live="polite"></div>
-        <div class="cam-previews-wrap">
-          <div id="camPreviews" class="cam-previews" aria-label="Captured photo previews"></div>
-          <button type="button" id="doneCamera" class="btn btn-accent cam-done hidden">Done</button>
+      </div>
+      <div class="cam-session">
+        <div class="cam-session-head">
+          <span>Session previews</span>
+          <span id="sessionCount" class="count-pill">0</span>
+        </div>
+        <div class="cam-previews-wrap has-shots" id="camPreviewsWrap">
+          <div id="camPreviews" class="cam-previews" aria-label="Captured photo previews">
+            <div class="cam-previews-empty" id="camPreviewsEmpty">Shots you take stay here until you tap Done</div>
+          </div>
+          <button type="button" id="doneCamera" class="btn btn-accent cam-done" disabled>Done</button>
         </div>
       </div>
       <div class="camera-controls">
