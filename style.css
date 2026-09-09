@@ -709,6 +709,66 @@ select,
   border-color: var(--accent);
 }
 
+.drive-field {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #4d625e;
+  margin-bottom: 14px;
+}
+
+.drive-field input {
+  width: 100%;
+  padding: 10px 12px;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 0.86rem;
+}
+
+.drive-steps {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 0.83rem;
+  line-height: 1.6;
+}
+
+.drive-steps li {
+  margin-bottom: 6px;
+}
+
+.drive-steps a {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.drive-steps code {
+  display: inline-block;
+  background: var(--rail);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 0.78rem;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.drive-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.drive-actions .btn {
+  flex: 1;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .upload + img {
   max-width: 100%;
   max-height: 180px;

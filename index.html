@@ -74,6 +74,7 @@
           <input id="customH" class="custom-size hidden" type="number" min="100" max="12000" value="1609" placeholder="H" aria-label="Custom height">
           <button type="button" id="settingsBtn" class="btn">Photo settings</button>
           <button type="button" id="save" class="btn btn-accent">Save JPG</button>
+          <button type="button" id="driveSave" class="btn">Save to Drive</button>
           <button type="button" id="batchZip" class="btn">Batch ZIP</button>
           <button type="button" id="infoBtn" class="btn btn-ghost">Info</button>
         </div>
@@ -209,13 +210,39 @@
         <button type="button" id="deleteSelected" class="btn danger">Delete Selected</button>
         <button type="button" id="editSelected" class="btn btn-accent">Edit Selected</button>
         <button type="button" id="galleryZip" class="btn">Batch ZIP</button>
+        <button type="button" id="galleryDrive" class="btn">Save to Drive</button>
       </div>
       <div id="galleryGrid" class="gallery-grid"></div>
     </div>
   </div>
 
+  <div id="driveModal" class="modal hidden">
+    <div class="card sheet">
+      <div class="modalhead">Google Drive <button type="button" id="closeDrive" class="icon-btn" aria-label="Close">×</button></div>
+      <p class="modal-lead">
+        Uploads go to a <b id="driveFolderName">DocuFrame</b> folder in your own Drive. DocuFrame only
+        asks for access to files it creates, and nothing is sent anywhere else.
+      </p>
+      <label class="drive-field">Google OAuth Client ID
+        <input id="driveClientId" type="text" placeholder="xxxxxxxx.apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+      </label>
+      <ol class="drive-steps">
+        <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer noopener">Google Cloud Console → Credentials</a>.</li>
+        <li>Enable the <b>Google Drive API</b> for your project.</li>
+        <li>Create an <b>OAuth client ID</b> of type <b>Web application</b>.</li>
+        <li>Add this page's origin to <b>Authorized JavaScript origins</b>: <code id="driveOrigin"></code></li>
+        <li>Paste the Client ID above and save. It stays on this device.</li>
+      </ol>
+      <div class="drive-actions">
+        <button type="button" id="driveForget" class="btn btn-ghost">Forget ID</button>
+        <button type="button" id="driveSaveId" class="btn btn-accent">Save Client ID</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden" role="status"></div>
   <script src="/jszip.min.js"></script>
+  <script src="/drive.js"></script>
   <script src="/app.js" defer></script>
   <script>
     document.querySelector('.empty-import')?.addEventListener('click', () => document.getElementById('files')?.click());

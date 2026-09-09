@@ -488,3 +488,96 @@ select = function(i){
   updateSettingsTarget();
 };
 updateSettingsTarget();
+
+/* Google Drive export: same composition pipeline as local JPG/ZIP export. */
+function driveConfigured(){
+  return Boolean(window.DocuDrive?.isConfigured());
+}
+function openDriveSetup(){
+  const modal = $('driveModal');
+  if(!modal) return;
+  $('driveOrigin').textContent = window.location.origin;
+  $('driveFolderName').textContent = window.DocuDrive?.folderName || 'DocuFrame';
+  $('driveClientId').value = window.DocuDrive?.getClientId() || '';
+  modal.classList.remove('hidden');
+}
+function closeDriveSetup(){
+  $('driveModal')?.classList.add('hidden');
+}
+$('closeDrive')?.addEventListener('click', closeDriveSetup);
+$('driveSaveId')?.addEventListener('click', () => {
+  const value = $('driveClientId').value.trim();
+  if(!value){ toast('Paste your Google OAuth Client ID'); return; }
+  if(!/\.apps\.googleusercontent\.com$/.test(value)){
+    toast('That does not look like a Google Client ID');
+    return;
+  }
+  window.DocuDrive.setClientId(value);
+  closeDriveSetup();
+  toast('Drive connected · tap Save to Drive again');
+});
+$('driveForget')?.addEventListener('click', () => {
+  window.DocuDrive.setClientId('');
+  window.DocuDrive.signOut();
+  $('driveClientId').value = '';
+  toast('Drive Client ID removed');
+});
+
+async function renderPhotoBlob(index){
+  const original = selected;
+  selected = index;
+  try{
+    const [ow, oh] = chosenResolution();
+    const out = document.createElement('canvas');
+    out.width = ow; out.height = oh;
+    const octx = out.getContext('2d', {alpha:false});
+    if(!(await drawComposition(octx, ow, oh))) return null;
+    const blob = await new Promise(r => out.toBlob(r, 'image/jpeg', 0.96));
+    return blob ? { blob, name: outputName() } : null;
+  }finally{
+    selected = original;
+  }
+}
+
+async function saveToDrive(indices){
+  if(!photos.length){ toast('No photos to upload'); return; }
+  if(!driveConfigured()){ openDriveSetup(); return; }
+  const targets = indices?.length ? indices : (selected >= 0 ? [selected] : []);
+  if(!targets.length){ toast('Select a photo first'); return; }
+
+  const buttons = [$('driveSave'), $('galleryDrive')].filter(Boolean);
+  buttons.forEach(b => { b.disabled = true; });
+  $('status').textContent = 'Preparing upload…';
+  try{
+    const files = [];
+    for(const i of targets){
+      const rendered = await renderPhotoBlob(i);
+      if(rendered) files.push(rendered);
+    }
+    if(!files.length) throw new Error('Could not render these photos');
+    if(selected >= 0) await drawPreview();
+
+    const { uploaded } = await window.DocuDrive.upload(files, (done, total) => {
+      $('status').textContent = `Uploading to Drive ${Math.min(done + 1, total)} of ${total}…`;
+    });
+    const folder = window.DocuDrive.folderName;
+    $('status').textContent = `Uploaded ${uploaded.length} photo${uploaded.length>1?'s':''} to Drive · ${folder}`;
+    toast(`Saved ${uploaded.length} photo${uploaded.length>1?'s':''} to Drive · ${folder}`);
+  }catch(e){
+    const msg = e?.message || 'Drive upload failed';
+    $('status').textContent = `Drive: ${msg}`;
+    toast(msg);
+    if(/Client ID/i.test(msg)) openDriveSetup();
+  }finally{
+    buttons.forEach(b => { b.disabled = false; });
+  }
+}
+
+$('driveSave')?.addEventListener('click', e => {
+  if(e.shiftKey){ openDriveSetup(); return; }
+  saveToDrive();
+});
+$('galleryDrive')?.addEventListener('click', () => {
+  const checked = [...document.querySelectorAll('.gcheck:checked')].map(c => Number(c.dataset.index));
+  saveToDrive(checked.length ? checked : [...photos.keys()]);
+});
