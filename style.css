@@ -709,6 +709,23 @@ select,
   border-color: var(--accent);
 }
 
+.drive-status {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(11, 107, 99, 0.2);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.drive-status.custom {
+  background: var(--rail);
+  border-color: var(--line-soft);
+  color: var(--muted);
+}
+
 .drive-field {
   display: block;
   font-size: 0.78rem;
@@ -726,8 +743,35 @@ select,
   font-size: 0.86rem;
 }
 
+.drive-field small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.drive-help {
+  margin-bottom: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--rail);
+}
+
+.drive-help summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.drive-help[open] summary {
+  margin-bottom: 10px;
+}
+
 .drive-steps {
-  margin: 0 0 16px;
+  margin: 0;
   padding-left: 20px;
   color: var(--muted);
   font-size: 0.83rem;

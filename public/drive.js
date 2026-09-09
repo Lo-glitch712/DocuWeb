@@ -9,12 +9,18 @@
   const FOLDER_ID_KEY = 'docuframe_drive_folder_id';
   const FOLDER_NAME = 'DocuFrame';
 
+  /* Web OAuth client IDs are public by design: the browser has to send one to
+     Google, and Google only honours it for origins listed on the client. This
+     preset lets the app work without per-device setup; a custom ID entered in
+     the Drive sheet overrides it. */
+  const PRESET_CLIENT_ID = '1024966656386-8jrno2022ah3n34748ev1bv4ca2rhb9l.apps.googleusercontent.com';
+
   let gisPromise = null;
   let tokenClient = null;
   let accessToken = null;
   let tokenExpiresAt = 0;
 
-  function getClientId() {
+  function getStoredClientId() {
     try {
       return localStorage.getItem(CLIENT_ID_KEY) || '';
     } catch (e) {
@@ -22,10 +28,18 @@
     }
   }
 
+  function getClientId() {
+    return getStoredClientId() || PRESET_CLIENT_ID;
+  }
+
+  function usingPreset() {
+    return !getStoredClientId() && Boolean(PRESET_CLIENT_ID);
+  }
+
   function setClientId(id) {
     try {
       const trimmed = (id || '').trim();
-      if (trimmed) localStorage.setItem(CLIENT_ID_KEY, trimmed);
+      if (trimmed && trimmed !== PRESET_CLIENT_ID) localStorage.setItem(CLIENT_ID_KEY, trimmed);
       else localStorage.removeItem(CLIENT_ID_KEY);
     } catch (e) { /* storage blocked */ }
     tokenClient = null;
@@ -206,7 +220,10 @@
 
   window.DocuDrive = {
     folderName: FOLDER_NAME,
+    presetClientId: PRESET_CLIENT_ID,
     getClientId,
+    getStoredClientId,
+    usingPreset,
     setClientId,
     isConfigured,
     upload,

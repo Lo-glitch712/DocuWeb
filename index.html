@@ -223,18 +223,23 @@
         Uploads go to a <b id="driveFolderName">DocuFrame</b> folder in your own Drive. DocuFrame only
         asks for access to files it creates, and nothing is sent anywhere else.
       </p>
+      <p id="driveStatusLine" class="drive-status">Using the built-in Client ID — no setup needed.</p>
       <label class="drive-field">Google OAuth Client ID
         <input id="driveClientId" type="text" placeholder="xxxxxxxx.apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+        <small>Only change this if you want to use your own Google Cloud project.</small>
       </label>
-      <ol class="drive-steps">
-        <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer noopener">Google Cloud Console → Credentials</a>.</li>
-        <li>Enable the <b>Google Drive API</b> for your project.</li>
-        <li>Create an <b>OAuth client ID</b> of type <b>Web application</b>.</li>
-        <li>Add this page's origin to <b>Authorized JavaScript origins</b>: <code id="driveOrigin"></code></li>
-        <li>Paste the Client ID above and save. It stays on this device.</li>
-      </ol>
+      <details class="drive-help">
+        <summary>Using your own Google project</summary>
+        <ol class="drive-steps">
+          <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer noopener">Google Cloud Console → Credentials</a>.</li>
+          <li>Enable the <b>Google Drive API</b> for your project.</li>
+          <li>Create an <b>OAuth client ID</b> of type <b>Web application</b>.</li>
+          <li>Add this page's origin to <b>Authorized JavaScript origins</b>: <code id="driveOrigin"></code></li>
+          <li>Paste the Client ID above and save. It stays on this device.</li>
+        </ol>
+      </details>
       <div class="drive-actions">
-        <button type="button" id="driveForget" class="btn btn-ghost">Forget ID</button>
+        <button type="button" id="driveForget" class="btn btn-ghost">Use preset</button>
         <button type="button" id="driveSaveId" class="btn btn-accent">Save Client ID</button>
       </div>
     </div>

@@ -493,12 +493,22 @@ updateSettingsTarget();
 function driveConfigured(){
   return Boolean(window.DocuDrive?.isConfigured());
 }
+function refreshDriveStatusLine(){
+  const line = $('driveStatusLine');
+  if(!line || !window.DocuDrive) return;
+  line.textContent = window.DocuDrive.usingPreset()
+    ? 'Using the built-in Client ID — no setup needed.'
+    : 'Using your own Client ID saved on this device.';
+  line.classList.toggle('custom', !window.DocuDrive.usingPreset());
+}
 function openDriveSetup(){
   const modal = $('driveModal');
   if(!modal) return;
   $('driveOrigin').textContent = window.location.origin;
   $('driveFolderName').textContent = window.DocuDrive?.folderName || 'DocuFrame';
-  $('driveClientId').value = window.DocuDrive?.getClientId() || '';
+  $('driveClientId').value = window.DocuDrive?.getStoredClientId() || '';
+  $('driveClientId').placeholder = window.DocuDrive?.presetClientId || 'xxxxxxxx.apps.googleusercontent.com';
+  refreshDriveStatusLine();
   modal.classList.remove('hidden');
 }
 function closeDriveSetup(){
@@ -520,7 +530,8 @@ $('driveForget')?.addEventListener('click', () => {
   window.DocuDrive.setClientId('');
   window.DocuDrive.signOut();
   $('driveClientId').value = '';
-  toast('Drive Client ID removed');
+  refreshDriveStatusLine();
+  toast('Back to the built-in Client ID');
 });
 
 async function renderPhotoBlob(index){
