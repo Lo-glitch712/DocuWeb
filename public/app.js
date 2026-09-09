@@ -253,16 +253,32 @@ if(cameraOrientation) cameraOrientation.onchange=async()=>{
 window.addEventListener('orientationchange',()=>{if(!cameraModal.classList.contains('hidden')) setTimeout(()=>{updateCameraOrientation();liveDraw()},250)});
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement && !cameraModal.classList.contains('hidden')) cameraLockPage(true)});
 
-/* Session capture: shutter burst + in-camera previews */
+/* Session capture: in-camera previews with per-shot removal */
 let cameraSessionShots = [];
 let capturingBurst = false;
 
-function fireShutterFlash(){
-  const flash = $('shutterFlash');
-  if(!flash) return;
-  flash.classList.remove('fire');
-  void flash.offsetWidth;
-  flash.classList.add('fire');
+async function removeSessionShot(index){
+  const shot = cameraSessionShots[index];
+  if(!shot) return;
+  const photoIndex = photos.findIndex(p => p.id === shot.photoId);
+  if(photoIndex >= 0){
+    const rec = photos[photoIndex];
+    await dbDeletePhoto(rec.id);
+    try{ URL.revokeObjectURL(rec.url); }catch(_){}
+    photos.splice(photoIndex, 1);
+    if(selected === photoIndex) selected = photos.length ? 0 : -1;
+    else if(selected > photoIndex) selected--;
+    renderList();
+    if(selected >= 0) select(selected); else drawPreview();
+    renderGallery();
+  }
+  try{ URL.revokeObjectURL(shot.url); }catch(_){}
+  cameraSessionShots.splice(index, 1);
+  renderCamPreviews();
+  $('camQuality').textContent = cameraSessionShots.length
+    ? `${cameraSessionShots.length} shot${cameraSessionShots.length>1?'s':''} in session`
+    : 'Shot removed · take another';
+  toast('Shot removed');
 }
 
 function renderCamPreviews(){
@@ -282,7 +298,17 @@ function renderCamPreviews(){
     const n = document.createElement('span');
     n.className = 'cam-preview-n';
     n.textContent = String(i + 1);
-    item.append(img, n);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'cam-preview-del';
+    del.textContent = '×';
+    del.setAttribute('aria-label', `Remove shot ${i + 1}`);
+    del.onclick = async e => {
+      e.stopPropagation();
+      if(capturingBurst){ toast('Wait — still taking pictures'); return; }
+      await removeSessionShot(i);
+    };
+    item.append(img, n, del);
     strip.append(item);
   });
   if(empty) empty.classList.toggle('hidden', cameraSessionShots.length > 0);
@@ -337,7 +363,8 @@ async function takeOneStill(){
   const f=new File([blob],`CAM_${Date.now()}_${ow}x${oh}.jpg`,{type:'image/jpeg',lastModified:Date.now()});
   await addFiles([f]);
   const previewUrl = URL.createObjectURL(blob);
-  cameraSessionShots.push({ url: previewUrl, name: f.name, width: ow, height: oh });
+  const stored = photos.find(p => p.name === f.name);
+  cameraSessionShots.push({ url: previewUrl, name: f.name, width: ow, height: oh, photoId: stored?.id });
   renderCamPreviews();
   return { ow, oh };
 }
@@ -358,7 +385,6 @@ async function captureCameraImproved(){
         progress.classList.remove('hidden');
         progress.textContent = total > 1 ? `Shot ${i + 1} of ${total}` : 'Capturing…';
       }
-      fireShutterFlash();
       const result = await takeOneStill();
       $('camQuality').textContent = `Saved ${result.ow} × ${result.oh} · keep shooting or tap Done`;
       if(i < total - 1) await new Promise(r => setTimeout(r, 280));
