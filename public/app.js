@@ -275,6 +275,7 @@ async function addFiles(list, opts={}){
         rememberFile(rec.id, file);
         await dbPutPhoto(rec, file, thumb);
         added.push(rec);
+        if(added.length===1 && selectFirst){ selected=0; select(0); }
       }catch(e){ console.warn('Cannot decode', file.name, e); }
       if(showBulk) setBulk(n+1, files.length, 'Importing');
       if((n+1)%4===0 || n===files.length-1) renderList();
@@ -423,7 +424,7 @@ function renderGallery(){
     const card=document.createElement('div'); card.className='gitem'+(i===selected?' current':''); card.dataset.index=String(i);
     const cb=document.createElement('input'); cb.type='checkbox'; cb.dataset.index=i; cb.className='gcheck';
     const media=document.createElement('div'); media.className='gmedia';
-    const im=document.createElement('img'); im.alt=''; im.loading='lazy'; im.decoding='async'; if(p.thumbUrl) im.src=p.thumbUrl;
+    const im=document.createElement('img'); im.alt=''; im.decoding='async'; if(p.thumbUrl) im.src=p.thumbUrl;
     media.append(im);
     if(overlay){ const ov=document.createElement('img'); ov.className='gtemplate'; ov.src=overlayURL; ov.alt=''; ov.draggable=false; media.append(ov); }
     const cap=document.createElement('div'); cap.textContent=`${i+1}. ${p.name}`;
