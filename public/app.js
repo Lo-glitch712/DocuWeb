@@ -2,6 +2,13 @@ const $=id=>document.getElementById(id); const W=940,H=788;
 const canvas=$('canvas'),ctx=canvas.getContext('2d',{alpha:false});
 let photos=[],selected=-1,overlay=null,overlayURL=null,stream=null,camFacing='environment',cameraTrack=null;
 
+const THUMB_MAX=240, FILE_CACHE_MAX=8, SIDEBAR_H=68, SIDEBAR_W=104;
+const fileCache=new Map();
+const thumbCanvas=document.createElement('canvas');
+const thumbCtx=thumbCanvas.getContext('2d',{alpha:false});
+let previewBitmap=null, previewBitmapId=null, bulkBusy=false, photoWindowRange={start:-1,end:-1};
+const workCanvas=document.createElement('canvas');
+
 /* --- Persistent local photo storage (IndexedDB) --- */
 const DB_NAME='docuframe_local_v2', DB_VER=1, PHOTO_STORE='photos', SETTINGS_STORE='settings';
 let db=null;
@@ -31,11 +38,55 @@ function openPhotoDB(){
     req.onerror=()=>reject(req.error);
   });
 }
-async function dbPutPhoto(p){
-  try{ const d=await openPhotoDB(); await new Promise((res,rej)=>{ const tx=d.transaction(PHOTO_STORE,'readwrite'); tx.objectStore(PHOTO_STORE).put({id:p.id,blob:p.file,name:p.name,width:p.width,height:p.height,addedAt:p.addedAt,e:p.e}); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }catch(e){ console.warn('Photo persistence failed',e); }
+async function dbPutRecord(row){
+  const d=await openPhotoDB();
+  await new Promise((res,rej)=>{ const tx=d.transaction(PHOTO_STORE,'readwrite'); tx.objectStore(PHOTO_STORE).put(row); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); });
+}
+async function dbGetPhoto(id){
+  const d=await openPhotoDB();
+  return new Promise((res,rej)=>{ const tx=d.transaction(PHOTO_STORE,'readonly'); const r=tx.objectStore(PHOTO_STORE).get(id); r.onsuccess=()=>res(r.result||null); r.onerror=()=>rej(r.error); });
+}
+async function dbPutPhoto(p, blob, thumb){
+  try{
+    const storedBlob = blob || p.file || (fileCache.get(p.id) || null);
+    if(!storedBlob){ await dbPatchPhotoMeta(p); return; }
+    await dbPutRecord({id:p.id,blob:storedBlob,thumb:thumb||p.thumbBlob||undefined,name:p.name,width:p.width,height:p.height,addedAt:p.addedAt,e:p.e});
+  }catch(e){ console.warn('Photo persistence failed',e); }
+}
+async function dbPatchPhotoMeta(p){
+  try{
+    const row=await dbGetPhoto(p.id);
+    if(!row) return;
+    row.e=p.e; row.name=p.name; row.width=p.width; row.height=p.height; row.addedAt=p.addedAt;
+    if(p.thumbBlob && !row.thumb) row.thumb=p.thumbBlob;
+    await dbPutRecord(row);
+  }catch(e){ console.warn('Photo meta save failed',e); }
 }
 async function dbDeletePhoto(id){
   try{ const d=await openPhotoDB(); await new Promise((res,rej)=>{ const tx=d.transaction(PHOTO_STORE,'readwrite'); tx.objectStore(PHOTO_STORE).delete(id); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); }catch(e){ console.warn('Photo delete persistence failed',e); }
+}
+function rememberFile(id, blob){
+  if(!blob) return;
+  if(fileCache.has(id)) fileCache.delete(id);
+  fileCache.set(id, blob);
+  while(fileCache.size>FILE_CACHE_MAX) fileCache.delete(fileCache.keys().next().value);
+}
+async function getPhotoFile(p){
+  if(fileCache.has(p.id)){ rememberFile(p.id, fileCache.get(p.id)); return fileCache.get(p.id); }
+  if(p.file){ rememberFile(p.id, p.file); return p.file; }
+  const row=await dbGetPhoto(p.id);
+  if(!row?.blob) throw new Error('Photo data missing');
+  rememberFile(p.id, row.blob);
+  return row.blob;
+}
+function dropPhotoMemory(p){
+  try{ if(p.thumbUrl) URL.revokeObjectURL(p.thumbUrl); }catch(_){}
+  try{ if(p.url) URL.revokeObjectURL(p.url); }catch(_){}
+  fileCache.delete(p.id);
+  if(previewBitmapId===p.id){
+    if(previewBitmap?.close) try{ previewBitmap.close(); }catch(_){}
+    previewBitmap=null; previewBitmapId=null;
+  }
 }
 async function dbLoadPhotos(){
   try{
@@ -43,70 +94,321 @@ async function dbLoadPhotos(){
     const rows=await new Promise((res,rej)=>{ const tx=d.transaction(PHOTO_STORE,'readonly'); const r=tx.objectStore(PHOTO_STORE).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); });
     rows.sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
     photos=[];
-    for(const row of rows){ const blob=row.blob; photos.push({id:row.id,file:blob,name:row.name,url:URL.createObjectURL(blob),width:row.width,height:row.height,addedAt:row.addedAt,e:row.e||{z:1,x:0,y:0,r:0,b:1,c:1}}); }
+    for(const row of rows){
+      const thumbUrl=row.thumb?URL.createObjectURL(row.thumb):'';
+      photos.push({id:row.id,name:row.name,width:row.width,height:row.height,addedAt:row.addedAt,e:row.e||{z:1,x:0,y:0,r:0,b:1,c:1},thumbUrl});
+    }
     renderList();
     if(photos.length){ selected=0; select(0); $('status').textContent=`${photos.length} saved photo${photos.length>1?'s':''} restored · newest first`; }
     else { $('status').textContent='Ready · photos are saved on this device'; }
+    fillMissingThumbs();
   }catch(e){ console.warn('Photo restore failed',e); $('status').textContent='Ready · local photo storage unavailable'; }
+}
+async function fillMissingThumbs(){
+  for(let i=0;i<photos.length;i++){
+    const p=photos[i];
+    if(p.thumbUrl) continue;
+    try{
+      const file=await getPhotoFile(p);
+      const thumb=await makeThumbBlob(file);
+      if(!thumb) continue;
+      p.thumbUrl=URL.createObjectURL(thumb);
+      const row=await dbGetPhoto(p.id);
+      if(row){ row.thumb=thumb; await dbPutRecord(row); }
+      if(i%6===0){ updatePhotoWindow(true); if(!$('galleryModal')?.classList.contains('hidden')) renderGallery(); }
+    }catch(e){ console.warn('Thumb rebuild failed', p.name, e); }
+    await yieldUI();
+  }
+  renderList();
+  if(!$('galleryModal')?.classList.contains('hidden')) renderGallery();
 }
 
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.remove('hidden');clearTimeout(window.__toast);window.__toast=setTimeout(()=>t.classList.add('hidden'),2200)}
+function yieldUI(){ return new Promise(r => setTimeout(r, 0)); }
 function loadImage(fileOrUrl){return new Promise((resolve,reject)=>{const url=typeof fileOrUrl==='string'?fileOrUrl:URL.createObjectURL(fileOrUrl);const im=new Image();im.onload=()=>{if(typeof fileOrUrl!=='string')URL.revokeObjectURL(url);resolve(im)};im.onerror=()=>{if(typeof fileOrUrl!=='string')URL.revokeObjectURL(url);reject(new Error('decode'))};im.src=url})}
-function renderList(){ $('count').textContent=photos.length; if(!photos.length){$('photos').innerHTML='<div class="empty">No photos yet</div>';return} $('photos').innerHTML=''; photos.forEach((p,i)=>{const d=document.createElement('div');d.className='photo '+(i===selected?'active':'');const im=document.createElement('img');im.src=p.url;const box=document.createElement('div'),b=document.createElement('b'),sm=document.createElement('small');b.textContent=p.name;sm.textContent=`${i+1} · ${p.width}×${p.height}`;box.append(b,sm);d.append(im,box);d.onclick=()=>select(i);$('photos').append(d)})}
-async function addFiles(list){
-  let added=0;
-  const now=Date.now();
-  for(const file of list){
-    if(!file.type.startsWith('image/')&&!/\.(png|jpe?g|webp|heic|heif|dng|raw)$/i.test(file.name))continue;
-    try{
-      const im=await loadImage(file);
-      const rec={id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}_${Math.random().toString(36).slice(2)}`,file,name:file.name,url:URL.createObjectURL(file),width:im.naturalWidth,height:im.naturalHeight,addedAt:now+added,e:{z:1,x:0,y:0,r:0,b:1,c:1}}; photos.unshift(rec); await dbPutPhoto(rec);
-      added++;
-    }catch(e){console.warn('Cannot decode',file.name,e)}
+function setBulk(done, total, label){
+  const wrap=$('bulkProgress'), bar=$('bulkBar'), text=$('bulkLabel');
+  if(!wrap) return;
+  if(!total){ wrap.classList.add('hidden'); if(bar) bar.style.width='0%'; return; }
+  wrap.classList.remove('hidden');
+  const pct=Math.max(0, Math.min(100, Math.round((done/total)*100)));
+  if(bar) bar.style.width=pct+'%';
+  if(text) text.textContent=`${label} · ${done} / ${total}`;
+  $('status').textContent=`${label} ${done} of ${total}`;
+}
+function isMobileRail(){ return window.matchMedia('(max-width: 850px)').matches; }
+function sidebarMetrics(){ return isMobileRail() ? { mobile:true, size:SIDEBAR_W } : { mobile:false, size:SIDEBAR_H }; }
+function bindPhotoScroller(){
+  const el=$('photos');
+  if(!el || el.dataset.virtualBound) return;
+  el.dataset.virtualBound='1';
+  el.addEventListener('scroll', () => updatePhotoWindow(), { passive:true });
+}
+window.addEventListener('resize', () => { if(photos.length) updatePhotoWindow(true); });
+async function makeThumbBlob(source){
+  let bmp=null, width=0, height=0;
+  try{
+    bmp = await createImageBitmap(source);
+    width = bmp.width; height = bmp.height;
+  }catch(_){
+    const im = await loadImage(source);
+    width = im.naturalWidth; height = im.naturalHeight;
+    bmp = im;
   }
-  photos.sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
-  renderList();
-  if(added){ selected=0; select(0); }
-  $('status').textContent=added?`${added} photo${added>1?'s':''} loaded · newest first`:'No supported images found';
+  const scale = Math.min(1, THUMB_MAX / Math.max(width, height));
+  const tw = Math.max(1, Math.round(width * scale));
+  const th = Math.max(1, Math.round(height * scale));
+  thumbCanvas.width = tw; thumbCanvas.height = th;
+  thumbCtx.clearRect(0,0,tw,th);
+  thumbCtx.drawImage(bmp, 0, 0, tw, th);
+  if(bmp.close) try{ bmp.close(); }catch(_){}
+  const blob = await new Promise(r => thumbCanvas.toBlob(r, 'image/jpeg', 0.7));
+  return { blob, width, height };
+}
+function makePhotoRow(i){
+  const p=photos[i];
+  const d=document.createElement('div');
+  d.className='photo'+(i===selected?' active':'');
+  d.dataset.index=String(i);
+  const im=document.createElement('img');
+  im.alt='';
+  im.decoding='async';
+  im.loading='lazy';
+  if(p.thumbUrl) im.src=p.thumbUrl;
+  const box=document.createElement('div'), b=document.createElement('b'), sm=document.createElement('small');
+  b.textContent=p.name;
+  sm.textContent=`${i+1} · ${p.width}×${p.height}`;
+  box.append(b,sm);
+  d.append(im,box);
+  d.onclick=()=>select(i);
+  return d;
+}
+function updatePhotoWindow(force){
+  const el=$('photos');
+  if(!el || !photos.length) return;
+  bindPhotoScroller();
+  let spacer=el.querySelector('.photos-spacer');
+  let windowEl=el.querySelector('.photos-window');
+  if(!spacer || !windowEl){
+    el.innerHTML='';
+    spacer=document.createElement('div'); spacer.className='photos-spacer';
+    windowEl=document.createElement('div'); windowEl.className='photos-window';
+    el.append(spacer, windowEl);
+  }
+  const { mobile, size } = sidebarMetrics();
+  const total=photos.length;
+  if(mobile){ spacer.style.width=`${total*size}px`; spacer.style.height='1px'; }
+  else { spacer.style.height=`${total*size}px`; spacer.style.width='auto'; }
+  const scroll = mobile ? el.scrollLeft : el.scrollTop;
+  const view = Math.max(mobile ? el.clientWidth : el.clientHeight, size);
+  const start = Math.max(0, Math.floor(scroll / size) - 10);
+  const end = Math.min(total, Math.ceil((scroll + view) / size) + 10);
+  if(!force && start===photoWindowRange.start && end===photoWindowRange.end) return;
+  photoWindowRange={start,end};
+  const frag=document.createDocumentFragment();
+  for(let i=start;i<end;i++) frag.appendChild(makePhotoRow(i));
+  windowEl.replaceChildren(frag);
+  windowEl.style.transform = mobile ? `translateX(${start*size}px)` : `translateY(${start*size}px)`;
+}
+function renderList(){
+  $('count').textContent=photos.length;
+  const el=$('photos');
+  if(!photos.length){
+    photoWindowRange={start:-1,end:-1};
+    el.innerHTML='<div class="empty">No photos yet</div>';
+    return;
+  }
+  updatePhotoWindow(true);
+}
+function markActiveOnly(){
+  document.querySelectorAll('#photos .photo').forEach(el => {
+    el.classList.toggle('active', Number(el.dataset.index)===selected);
+  });
+  document.querySelectorAll('#galleryGrid .gitem').forEach(el => {
+    el.classList.toggle('current', Number(el.dataset.index)===selected);
+  });
+}
+function ensureRowVisible(i){
+  const el=$('photos');
+  if(!el || i<0) return;
+  const { mobile, size } = sidebarMetrics();
+  const start = mobile ? el.scrollLeft : el.scrollTop;
+  const view = mobile ? el.clientWidth : el.clientHeight;
+  const pos = i * size;
+  if(pos < start){
+    if(mobile) el.scrollLeft=pos; else el.scrollTop=pos;
+  }else if(pos + size > start + view){
+    if(mobile) el.scrollLeft=pos - view + size; else el.scrollTop=pos - view + size;
+  }
+  updatePhotoWindow();
+}
+function isImageFile(file){
+  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|heic|heif|dng|raw)$/i.test(file.name);
+}
+async function addFiles(list, opts={}){
+  const { selectFirst=true } = opts;
+  const files=[...list].filter(isImageFile);
+  if(!files.length){
+    $('status').textContent='No supported images found';
+    return [];
+  }
+  if(bulkBusy){ toast('Still importing photos…'); return []; }
+  bulkBusy=true;
+  const added=[];
+  const now=Date.now();
+  const showBulk=files.length>2;
+  try{
+    if(showBulk) setBulk(0, files.length, 'Importing');
+    for(let n=0;n<files.length;n++){
+      const file=files[n];
+      try{
+        const { blob:thumb, width, height } = await makeThumbBlob(file);
+        const rec={
+          id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          name:file.name,
+          width, height,
+          addedAt:now+n,
+          e:{z:1,x:0,y:0,r:0,b:1,c:1},
+          thumbUrl: thumb ? URL.createObjectURL(thumb) : ''
+        };
+        photos.unshift(rec);
+        rememberFile(rec.id, file);
+        await dbPutPhoto(rec, file, thumb);
+        added.push(rec);
+      }catch(e){ console.warn('Cannot decode', file.name, e); }
+      if(showBulk) setBulk(n+1, files.length, 'Importing');
+      if((n+1)%4===0 || n===files.length-1) renderList();
+      await yieldUI();
+    }
+    photos.sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
+    renderList();
+    if(added.length && selectFirst){ selected=0; select(0); }
+    else markActiveOnly();
+    if(!$('galleryModal')?.classList.contains('hidden')) renderGallery();
+    $('status').textContent=added.length?`${added.length} photo${added.length>1?'s':''} loaded · newest first`:'No supported images found';
+    if(added.length) toast(`${added.length} photo${added.length>1?'s':''} imported`);
+  }finally{
+    bulkBusy=false;
+    setBulk(0,0);
+  }
+  return added;
 }
 
 $('pick').onclick=()=>{$('files').click()};$('files').addEventListener('change',async e=>{await addFiles([...e.target.files]);e.target.value=''});$('drop').onclick=()=>{$('files').click()};$('drop').ondragover=e=>{e.preventDefault();$('drop').style.background='#eaf2ff'};$('drop').ondragleave=()=>{$('drop').style.background=''};$('drop').ondrop=e=>{e.preventDefault();$('drop').style.background='';addFiles([...e.dataTransfer.files])};
-function select(i){if(i<0||i>=photos.length)return;selected=i;const e=photos[i].e; $('zoom').value=e.z;$('x').value=e.x;$('y').value=e.y;$('rot').value=e.r;$('bright').value=e.b;$('contrast').value=e.c;renderList();drawPreview()}
+function select(i){
+  if(i<0||i>=photos.length)return;
+  if(previewBitmapId && previewBitmapId!==photos[i].id){
+    if(previewBitmap?.close) try{ previewBitmap.close(); }catch(_){}
+    previewBitmap=null; previewBitmapId=null;
+  }
+  selected=i;
+  const e=photos[i].e;
+  $('zoom').value=e.z;$('x').value=e.x;$('y').value=e.y;$('rot').value=e.r;$('bright').value=e.b;$('contrast').value=e.c;
+  markActiveOnly();
+  ensureRowVisible(i);
+  if(typeof updateSettingsTarget==='function') updateSettingsTarget();
+  drawPreview();
+}
 function updateReadouts(){if(selected<0)return;const e=photos[selected].e;$('zv').textContent=Math.round(e.z*100)+'%';$('xv').textContent=e.x;$('yv').textContent=e.y;$('rv').textContent=e.r+'°'}
-[['zoom','z'],['x','x'],['y','y'],['rot','r'],['bright','b'],['contrast','c']].forEach(([id,key])=>$(id).addEventListener('input',()=>{if(selected<0)return;photos[selected].e[key]=Number($(id).value);dbPutPhoto(photos[selected]);updateReadouts();drawPreview()}));['project','custom'].forEach(id=>$(id).addEventListener('input',()=>{dbPutSetting(id,$(id).value);drawPreview();}));
-async function drawComposition(target,ow,oh){target.clearRect(0,0,ow,oh);target.fillStyle='#202832';target.fillRect(0,0,ow,oh);if(selected<0)return false;const p=photos[selected];let im;try{im=await loadImage(p.file)}catch{return false}const e=p.e,scale=Math.max(ow/im.naturalWidth,oh/im.naturalHeight);target.save();target.translate(ow/2+e.x*(ow/W),oh/2+e.y*(oh/H));target.rotate(e.r*Math.PI/180);target.scale(e.z,e.z);target.filter=`brightness(${e.b}) contrast(${e.c})`;const dw=im.naturalWidth*scale,dh=im.naturalHeight*scale;target.drawImage(im,-dw/2,-dh/2,dw,dh);target.restore();target.filter='none';if(overlay)target.drawImage(overlay,0,0,ow,oh);const project=$('project').value.trim(),custom=$('custom').value.trim();if(project||custom){const s=ow/W;target.fillStyle='#000b';target.fillRect(18*s,(H-58)*s,(W-36)*s,40*s);target.fillStyle='#fff';target.font=`bold ${13*s}px system-ui`;target.fillText(project,30*s,(H-35)*s);target.font=`${10*s}px system-ui`;target.fillText(custom,30*s,(H-19)*s)}return true}
+let metaSaveTimer=null;
+function scheduleMetaSave(p){
+  clearTimeout(metaSaveTimer);
+  metaSaveTimer=setTimeout(()=>dbPatchPhotoMeta(p), 280);
+}
+[['zoom','z'],['x','x'],['y','y'],['rot','r'],['bright','b'],['contrast','c']].forEach(([id,key])=>$(id).addEventListener('input',()=>{if(selected<0)return;photos[selected].e[key]=Number($(id).value);scheduleMetaSave(photos[selected]);updateReadouts();drawPreview()}));['project','custom'].forEach(id=>$(id).addEventListener('input',()=>{dbPutSetting(id,$(id).value);drawPreview();}));
+async function getPreviewSource(p){
+  if(previewBitmap && previewBitmapId===p.id) return previewBitmap;
+  if(previewBitmap?.close) try{ previewBitmap.close(); }catch(_){}
+  previewBitmap=null; previewBitmapId=null;
+  const file=await getPhotoFile(p);
+  try{ previewBitmap=await createImageBitmap(file); }
+  catch(_){ previewBitmap=await loadImage(file); }
+  previewBitmapId=p.id;
+  return previewBitmap;
+}
+function sourceSize(im){
+  return [im.naturalWidth||im.width, im.naturalHeight||im.height];
+}
+async function drawComposition(target,ow,oh,photo){
+  target.clearRect(0,0,ow,oh);target.fillStyle='#202832';target.fillRect(0,0,ow,oh);
+  const p=photo||photos[selected];
+  if(!p) return false;
+  let im, owned=false;
+  try{
+    if(photo && photo.id!==previewBitmapId){
+      const file=await getPhotoFile(p);
+      try{ im=await createImageBitmap(file); owned=true; }
+      catch(_){ im=await loadImage(file); }
+    }else{
+      im=await getPreviewSource(p);
+    }
+  }catch{ return false; }
+  const [iw,ih]=sourceSize(im);
+  const e=p.e,scale=Math.max(ow/iw,oh/ih);
+  target.save();target.translate(ow/2+e.x*(ow/W),oh/2+e.y*(oh/H));target.rotate(e.r*Math.PI/180);target.scale(e.z,e.z);target.filter=`brightness(${e.b}) contrast(${e.c})`;
+  const dw=iw*scale,dh=ih*scale;target.drawImage(im,-dw/2,-dh/2,dw,dh);target.restore();target.filter='none';
+  if(overlay)target.drawImage(overlay,0,0,ow,oh);
+  const project=$('project').value.trim(),custom=$('custom').value.trim();
+  if(project||custom){const s=ow/W;target.fillStyle='#000b';target.fillRect(18*s,(H-58)*s,(W-36)*s,40*s);target.fillStyle='#fff';target.font=`bold ${13*s}px system-ui`;target.fillText(project,30*s,(H-35)*s);target.font=`${10*s}px system-ui`;target.fillText(custom,30*s,(H-19)*s)}
+  if(owned && im.close) try{ im.close(); }catch(_){}
+  return true;
+}
 async function drawPreview(){updateReadouts();const ok=await drawComposition(ctx,W,H);$('empty').style.display=(selected>=0&&ok)?'none':'flex'}
-function chosenResolution(){const v=$('resolution').value;if(v==='original'&&selected>=0)return [photos[selected].width,photos[selected].height];if(v==='custom')return [Math.max(100,Math.min(12000,parseInt($('customW').value)||1920)),Math.max(100,Math.min(12000,parseInt($('customH').value)||1609))];return v.split('x').map(Number)}
-function outputName(){const prefix=($('project').value||'DOC').trim().replace(/[^\w-]+/g,'_')||'DOC';return `${prefix}_${String(selected+1).padStart(3,'0')}.jpg`}
-async function exportCurrent(){if(selected<0){toast('Upload/select a photo first.');return}const [ow,oh]=chosenResolution(),out=document.createElement('canvas');out.width=ow;out.height=oh;const octx=out.getContext('2d',{alpha:false});if(!(await drawComposition(octx,ow,oh))){toast('Could not render this photo.');return}out.toBlob(blob=>{if(!blob)return toast('Export failed.');const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=outputName();a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('status').textContent=`Saved ${ow} × ${oh}`;toast(`Saved ${ow} × ${oh} JPG`)},'image/jpeg',.94)}
+function chosenResolution(photo){
+  const p=photo||photos[selected];
+  const v=$('resolution').value;
+  if(v==='original'&&p) return [p.width,p.height];
+  if(v==='custom') return [Math.max(100,Math.min(12000,parseInt($('customW').value)||1920)),Math.max(100,Math.min(12000,parseInt($('customH').value)||1609))];
+  return v.split('x').map(Number);
+}
+function outputName(index=selected){const prefix=($('project').value||'DOC').trim().replace(/[^\w-]+/g,'_')||'DOC';return `${prefix}_${String(index+1).padStart(3,'0')}.jpg`}
+function canvasToBlob(source, quality=0.92){
+  return new Promise(r => source.toBlob(r, 'image/jpeg', quality));
+}
+async function exportCurrent(){
+  if(selected<0){toast('Upload/select a photo first.');return}
+  const [ow,oh]=chosenResolution();
+  workCanvas.width=ow; workCanvas.height=oh;
+  const octx=workCanvas.getContext('2d',{alpha:false});
+  if(!(await drawComposition(octx,ow,oh,photos[selected]))){toast('Could not render this photo.');return}
+  const blob=await canvasToBlob(workCanvas, 0.94);
+  if(!blob) return toast('Export failed.');
+  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=outputName();a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('status').textContent=`Saved ${ow} × ${oh}`;toast(`Saved ${ow} × ${oh} JPG`);
+}
 $('save').onclick=exportCurrent;
 async function exportBatchZip(){
+  if(bulkBusy){ toast('Wait — still working'); return; }
   if(!photos.length){toast('No photos to download.');return}
   if(typeof JSZip==='undefined'){toast('ZIP engine unavailable.');return}
+  const indices=batchTargets();
+  bulkBusy=true;
   const zip=new JSZip();
-  const original=selected;
-  const chosen=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index));
-  const indices=chosen.length?chosen:[...photos.keys()];
-  let done=0;
   toast(`Preparing ${indices.length} photo${indices.length>1?'s':''}…`);
-  for(const i of indices){
-    selected=i;
-    const [ow,oh]=chosenResolution();
-    const out=document.createElement('canvas'); out.width=ow; out.height=oh;
-    const octx=out.getContext('2d',{alpha:false});
-    if(await drawComposition(octx,ow,oh)){
-      const blob=await new Promise(r=>out.toBlob(r,'image/jpeg',.96));
-      if(blob) zip.file(outputName(),blob);
+  try{
+    for(let n=0;n<indices.length;n++){
+      const i=indices[n], p=photos[i];
+      const [ow,oh]=chosenResolution(p);
+      workCanvas.width=ow; workCanvas.height=oh;
+      const octx=workCanvas.getContext('2d',{alpha:false});
+      if(await drawComposition(octx,ow,oh,p)){
+        const blob=await canvasToBlob(workCanvas, 0.92);
+        if(blob) zip.file(outputName(i), blob);
+      }
+      setBulk(n+1, indices.length, 'Rendering');
+      await yieldUI();
     }
-    done++;
+    setBulk(indices.length, indices.length, 'Zipping');
+    const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true},m=>{ $('status').textContent=`Zipping ${Math.round(m.percent)}%`; });
+    const url=URL.createObjectURL(blob),a=document.createElement('a'); a.href=url; a.download=`${(($('project').value||'DocuFrame').trim().replace(/[^\w-]+/g,'_')||'DocuFrame')}_photos.zip`; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),2000); toast(`Batch ZIP ready · ${indices.length} photo${indices.length>1?'s':''}`); $('status').textContent=`ZIP exported · ${indices.length} photos`;
+  }finally{
+    bulkBusy=false;
+    setBulk(0,0);
+    if(selected>=0) drawPreview();
   }
-  selected=original; if(original>=0) drawPreview();
-  const blob=await zip.generateAsync({type:'blob',compression:'STORE',streamFiles:true},m=>{ $('status').textContent=`Zipping ${Math.round(m.percent)}%`; });
-  const url=URL.createObjectURL(blob),a=document.createElement('a'); a.href=url; a.download=`${(($('project').value||'DocuFrame').trim().replace(/[^\w-]+/g,'_')||'DocuFrame')}_photos.zip`; a.click();
-  setTimeout(()=>URL.revokeObjectURL(url),2000); toast(`Batch ZIP ready · ${indices.length} photo${indices.length>1?'s':''}`); $('status').textContent=`ZIP exported · ${indices.length} photos`;
 }
 if($('galleryZip')) $('galleryZip').onclick=exportBatchZip;
-$('resolution').onchange=()=>{const c=$('resolution').value==='custom';$('customW').classList.toggle('hidden',!c);$('customH').classList.toggle('hidden',!c);$('times').classList.toggle('hidden',!c)};$('reset').onclick=()=>{if(selected<0)return;photos[selected].e={z:1,x:0,y:0,r:0,b:1,c:1};dbPutPhoto(photos[selected]);select(selected)};
+$('resolution').onchange=()=>{const c=$('resolution').value==='custom';$('customW').classList.toggle('hidden',!c);$('customH').classList.toggle('hidden',!c);$('times').classList.toggle('hidden',!c)};$('reset').onclick=()=>{if(selected<0)return;photos[selected].e={z:1,x:0,y:0,r:0,b:1,c:1};scheduleMetaSave(photos[selected]);select(selected)};
 $('tpl').onclick=()=>$('modal').classList.remove('hidden');$('closeTpl').onclick=()=>$('modal').classList.add('hidden');$('templateFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(overlayURL)URL.revokeObjectURL(overlayURL);overlay=await loadImage(f);overlayURL=URL.createObjectURL(f);$('templatePreview').src=overlayURL;await dbPutSetting('overlay',{blob:f,name:f.name});$('modal').classList.add('hidden');drawPreview();renderGallery();toast('Template loaded · saved for all gallery photos')}catch{toast('Template PNG could not be loaded')}};
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}cameraTrack=null}
 function liveDraw(){if($('cameraModal').classList.contains('hidden'))return;const v=$('video'),l=$('live'),x=l.getContext('2d');x.clearRect(0,0,W,H);if(v.videoWidth&&v.videoHeight){const sc=Math.max(W/v.videoWidth,H/v.videoHeight),dw=v.videoWidth*sc,dh=v.videoHeight*sc;x.drawImage(v,(W-dw)/2,(H-dh)/2,dw,dh)}if(overlay)x.drawImage(overlay,0,0,W,H);requestAnimationFrame(liveDraw)}
@@ -116,21 +418,23 @@ function renderGallery(){
   $('galleryCount').textContent=photos.length;
   const g=$('galleryGrid'); g.innerHTML='';
   if(!photos.length){g.innerHTML='<div class="empty">No photos yet</div>';return}
+  const frag=document.createDocumentFragment();
   photos.forEach((p,i)=>{
-    const card=document.createElement('div'); card.className='gitem '+(i===selected?'current':'');
+    const card=document.createElement('div'); card.className='gitem'+(i===selected?' current':''); card.dataset.index=String(i);
     const cb=document.createElement('input'); cb.type='checkbox'; cb.dataset.index=i; cb.className='gcheck';
     const media=document.createElement('div'); media.className='gmedia';
-    const im=document.createElement('img'); im.src=p.url; im.loading='lazy';
+    const im=document.createElement('img'); im.alt=''; im.loading='lazy'; im.decoding='async'; if(p.thumbUrl) im.src=p.thumbUrl;
     media.append(im);
     if(overlay){ const ov=document.createElement('img'); ov.className='gtemplate'; ov.src=overlayURL; ov.alt=''; ov.draggable=false; media.append(ov); }
     const cap=document.createElement('div'); cap.textContent=`${i+1}. ${p.name}`;
     card.append(cb,media,cap);
     card.onclick=e=>{if(e.target===cb)return; cb.checked=!cb.checked; select(i); card.classList.toggle('checked',cb.checked)};
-    cb.onclick=e=>e.stopPropagation(); g.append(card);
+    cb.onclick=e=>e.stopPropagation(); frag.append(card);
   });
+  g.append(frag);
 }
 
-$('galleryBtn').onclick=()=>openGallery();$('closeGallery').onclick=()=>$('galleryModal').classList.add('hidden');$('selectAll').onclick=()=>{document.querySelectorAll('.gcheck').forEach(c=>c.checked=true)};$('deleteSelected').onclick=async()=>{const ids=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index)).sort((a,b)=>b-a);if(!ids.length)return toast('Select photos to delete');for(const i of ids){const rec=photos[i]; if(rec){await dbDeletePhoto(rec.id); URL.revokeObjectURL(rec.url); photos.splice(i,1); if(selected===i)selected=-1; else if(selected>i)selected--;}}if(selected<0&&photos.length)selected=0;renderList();if(selected>=0)select(selected);else drawPreview();renderGallery();toast(`${ids.length} photo${ids.length>1?'s':''} deleted`)};$('editSelected').onclick=()=>{const checks=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index));if(checks.length!==1)return toast('Select exactly one photo to edit');select(checks[0]);$('galleryModal').classList.add('hidden');$('status').textContent=`Editing photo ${checks[0]+1}`};
+$('galleryBtn').onclick=()=>openGallery();$('closeGallery').onclick=()=>$('galleryModal').classList.add('hidden');$('selectAll').onclick=()=>{document.querySelectorAll('.gcheck').forEach(c=>c.checked=true)};$('deleteSelected').onclick=async()=>{const ids=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index)).sort((a,b)=>b-a);if(!ids.length)return toast('Select photos to delete');for(const i of ids){const rec=photos[i]; if(rec){await dbDeletePhoto(rec.id); dropPhotoMemory(rec); photos.splice(i,1); if(selected===i)selected=-1; else if(selected>i)selected--;}}if(selected<0&&photos.length)selected=0;renderList();if(selected>=0)select(selected);else drawPreview();renderGallery();toast(`${ids.length} photo${ids.length>1?'s':''} deleted`)};$('editSelected').onclick=()=>{const checks=[...document.querySelectorAll('.gcheck:checked')].map(c=>Number(c.dataset.index));if(checks.length!==1)return toast('Select exactly one photo to edit');select(checks[0]);$('galleryModal').classList.add('hidden');$('status').textContent=`Editing photo ${checks[0]+1}`};
 function showInfo(){$('edit').classList.add('hidden');$('info').classList.remove('hidden');$('status').textContent='Info panel'}; $('infoBtn').onclick=showInfo; $('infoNav').onclick=showInfo;
 renderList();updateReadouts(); restoreAppSettings(); dbLoadPhotos();
 
@@ -264,7 +568,7 @@ async function removeSessionShot(index){
   if(photoIndex >= 0){
     const rec = photos[photoIndex];
     await dbDeletePhoto(rec.id);
-    try{ URL.revokeObjectURL(rec.url); }catch(_){}
+    dropPhotoMemory(rec);
     photos.splice(photoIndex, 1);
     if(selected === photoIndex) selected = photos.length ? 0 : -1;
     else if(selected > photoIndex) selected--;
@@ -272,7 +576,6 @@ async function removeSessionShot(index){
     if(selected >= 0) select(selected); else drawPreview();
     renderGallery();
   }
-  try{ URL.revokeObjectURL(shot.url); }catch(_){}
   cameraSessionShots.splice(index, 1);
   renderCamPreviews();
   $('camQuality').textContent = cameraSessionShots.length
@@ -324,7 +627,6 @@ function renderCamPreviews(){
 }
 
 function clearCameraSessionPreviews(){
-  cameraSessionShots.forEach(shot => { try{ URL.revokeObjectURL(shot.url); }catch(_){} });
   cameraSessionShots = [];
   renderCamPreviews();
   const progress = $('shotProgress');
@@ -361,10 +663,9 @@ async function takeOneStill(){
     q.toBlob(b => b ? resolve(b) : reject(new Error('Capture failed')), 'image/jpeg', 0.98);
   });
   const f=new File([blob],`CAM_${Date.now()}_${ow}x${oh}.jpg`,{type:'image/jpeg',lastModified:Date.now()});
-  await addFiles([f]);
-  const previewUrl = URL.createObjectURL(blob);
-  const stored = photos.find(p => p.name === f.name);
-  cameraSessionShots.push({ url: previewUrl, name: f.name, width: ow, height: oh, photoId: stored?.id });
+  const added = await addFiles([f], { selectFirst:false });
+  const stored = added[0] || photos.find(p => p.name === f.name);
+  cameraSessionShots.push({ url: stored?.thumbUrl || '', name: f.name, width: ow, height: oh, photoId: stored?.id });
   renderCamPreviews();
   return { ow, oh };
 }
@@ -482,11 +783,6 @@ $('infoBtn').onclick = openSettings;
 $('infoNav').onclick = openSettings;
 $('mInfo')?.addEventListener('click', openSettings);
 
-const selectWithSettings = select;
-select = function(i){
-  selectWithSettings(i);
-  updateSettingsTarget();
-};
 updateSettingsTarget();
 
 /* Google Drive export: same composition pipeline as local JPG/ZIP export. */
@@ -535,22 +831,18 @@ $('driveForget')?.addEventListener('click', () => {
 });
 
 async function renderPhotoBlob(index){
-  const original = selected;
-  selected = index;
-  try{
-    const [ow, oh] = chosenResolution();
-    const out = document.createElement('canvas');
-    out.width = ow; out.height = oh;
-    const octx = out.getContext('2d', {alpha:false});
-    if(!(await drawComposition(octx, ow, oh))) return null;
-    const blob = await new Promise(r => out.toBlob(r, 'image/jpeg', 0.96));
-    return blob ? { blob, name: outputName() } : null;
-  }finally{
-    selected = original;
-  }
+  const p = photos[index];
+  if(!p) return null;
+  const [ow, oh] = chosenResolution(p);
+  workCanvas.width = ow; workCanvas.height = oh;
+  const octx = workCanvas.getContext('2d', {alpha:false});
+  if(!(await drawComposition(octx, ow, oh, p))) return null;
+  const blob = await canvasToBlob(workCanvas, 0.92);
+  return blob ? { blob, name: outputName(index) } : null;
 }
 
 async function saveToDrive(indices){
+  if(bulkBusy){ toast('Wait — still working'); return; }
   if(!photos.length){ toast('No photos to upload'); return; }
   if(!driveConfigured()){ openDriveSetup(); return; }
   const targets = indices?.length ? indices : (selected >= 0 ? [selected] : []);
@@ -558,28 +850,39 @@ async function saveToDrive(indices){
 
   const buttons = [$('batchZip'), $('galleryZip')].filter(Boolean);
   buttons.forEach(b => { b.disabled = true; });
+  bulkBusy = true;
   $('status').textContent = 'Preparing upload…';
+  let uploadedCount = 0;
   try{
-    const files = [];
-    for(const i of targets){
-      const rendered = await renderPhotoBlob(i);
-      if(rendered) files.push(rendered);
+    const chunkSize = 3;
+    for(let i=0;i<targets.length;i+=chunkSize){
+      const files = [];
+      const slice = targets.slice(i, i+chunkSize);
+      for(const index of slice){
+        const rendered = await renderPhotoBlob(index);
+        if(rendered) files.push(rendered);
+        await yieldUI();
+      }
+      if(!files.length) continue;
+      const { uploaded } = await window.DocuDrive.upload(files, (done, total) => {
+        setBulk(uploadedCount + done, targets.length, 'Uploading');
+      });
+      uploadedCount += uploaded.length;
+      setBulk(uploadedCount, targets.length, 'Uploading');
     }
-    if(!files.length) throw new Error('Could not render these photos');
+    if(!uploadedCount) throw new Error('Could not render these photos');
     if(selected >= 0) await drawPreview();
-
-    const { uploaded } = await window.DocuDrive.upload(files, (done, total) => {
-      $('status').textContent = `Uploading to Drive ${Math.min(done + 1, total)} of ${total}…`;
-    });
     const folder = window.DocuDrive.folderName;
-    $('status').textContent = `Uploaded ${uploaded.length} photo${uploaded.length>1?'s':''} to Drive · ${folder}`;
-    toast(`Saved ${uploaded.length} photo${uploaded.length>1?'s':''} to Drive · ${folder}`);
+    $('status').textContent = `Uploaded ${uploadedCount} photo${uploadedCount>1?'s':''} to Drive · ${folder}`;
+    toast(`Saved ${uploadedCount} photo${uploadedCount>1?'s':''} to Drive · ${folder}`);
   }catch(e){
     const msg = e?.message || 'Drive upload failed';
     $('status').textContent = `Drive: ${msg}`;
     toast(msg);
     if(/Client ID/i.test(msg)) openDriveSetup();
   }finally{
+    bulkBusy = false;
+    setBulk(0,0);
     buttons.forEach(b => { b.disabled = false; });
   }
 }

@@ -32,14 +32,14 @@ html {
 
 html, body {
   margin: 0;
-  min-height: 100%;
+  height: 100%;
   color: var(--ink);
   font: 14px/1.45 var(--font-ui);
   background: var(--paper);
 }
 
 body {
-  overflow-x: hidden;
+  overflow: hidden;
   position: relative;
 }
 
@@ -72,9 +72,11 @@ button, select, input {
 }
 
 .app {
-  min-height: 100dvh;
+  height: 100dvh;
+  max-height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   animation: rise-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -201,6 +203,7 @@ button.btn {
   grid-template-columns: 250px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   gap: 14px;
   padding: 14px 16px 18px;
 }
@@ -220,6 +223,8 @@ button.btn {
   flex-direction: column;
   gap: 10px;
   box-shadow: var(--shadow);
+  overflow: hidden;
+  max-height: 100%;
 }
 
 .rail-head {
@@ -249,12 +254,59 @@ button.btn {
 }
 
 .photos {
+  position: relative;
   flex: 1;
   overflow: auto;
   min-height: 120px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.photos-spacer {
+  pointer-events: none;
+  flex: none;
+}
+
+.photos-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  will-change: transform;
+}
+
+.bulk-progress {
+  display: grid;
+  gap: 4px;
+}
+
+.bulk-progress.hidden {
+  display: none;
+}
+
+.bulk-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.bulk-track span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.bulk-progress small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .photos .empty {
@@ -267,10 +319,15 @@ button.btn {
 .photo {
   display: flex;
   gap: 10px;
+  height: 62px;
+  flex: none;
   padding: 8px;
   border-radius: 12px;
   cursor: pointer;
   border: 1px solid transparent;
+  box-sizing: border-box;
+  content-visibility: auto;
+  contain-intrinsic-size: 62px;
   transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
 }
 
@@ -1337,6 +1394,8 @@ body.camera-open {
   cursor: pointer;
   min-width: 0;
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: 200px;
   transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
@@ -1443,14 +1502,21 @@ body.camera-open {
     flex-direction: column;
     gap: 10px;
     padding: 10px 10px calc(78px + var(--safe-b));
+    min-height: 0;
+    overflow: hidden;
   }
 
   .workspace {
     order: 1;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .rail {
     order: 2;
+    flex: none;
+    max-height: none;
   }
 
   .drawer {
@@ -1488,15 +1554,23 @@ body.camera-open {
 
   .photos {
     max-height: 150px;
-    flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
+  }
+
+  .photos-window {
+    right: auto;
+    bottom: 0;
+    flex-direction: row;
+    height: 100%;
   }
 
   .photo {
     width: 98px;
     min-width: 98px;
+    height: auto;
     display: block;
+    contain-intrinsic-size: 98px 132px;
   }
 
   .photo.active {
