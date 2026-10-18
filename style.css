@@ -393,6 +393,14 @@ button.btn {
 
 .drop small {
   font-size: 0.72rem;
+  display: block;
+}
+
+.drop-folder {
+  display: inline-flex;
+  margin-top: 10px;
+  font-size: 0.78rem;
+  padding: 6px 10px;
 }
 
 .workspace {
