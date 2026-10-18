@@ -223,8 +223,8 @@ function bindPhotoScroller(){
   el.addEventListener('scroll', () => updatePhotoWindow(), { passive:true });
 }
 window.addEventListener('resize', () => { if(photos.length) updatePhotoWindow(true); });
-async function blobFromCanvas(source, quality=0.84){
-  return await new Promise(r => source.toBlob(r, 'image/jpeg', quality));
+async function blobFromCanvas(source, quality=0.84, type='image/jpeg'){
+  return await new Promise(r => source.toBlob(r, type, type==='image/jpeg' ? quality : undefined));
 }
 function isRawFile(file){
   if(!file) return false;
@@ -310,7 +310,12 @@ async function fileForDecode(file){
   if(!preview) throw new Error('raw preview');
   return preview;
 }
+function pngNameFrom(file){
+  const base=(file.name||'photo').replace(/\.[^.]+$/, '');
+  return `${base || 'photo'}.png`;
+}
 async function preparePhoto(file){
+  const raw=isRawFile(file);
   const source=await fileForDecode(file);
   const bmp=await decodeImage(source, { maxEdge: STORE_MAX_EDGE });
   const [width,height]=sourceWH(bmp);
@@ -318,14 +323,14 @@ async function preparePhoto(file){
   const [sw,sh]=fitSize(width,height,STORE_MAX_EDGE);
   storeCanvas.width=sw; storeCanvas.height=sh;
   storeCtx.drawImage(bmp,0,0,sw,sh);
-  const studio=await blobFromCanvas(storeCanvas, 0.86);
+  const studio=await blobFromCanvas(storeCanvas, 0.86, raw ? 'image/png' : 'image/jpeg');
   const [tw,th]=fitSize(sw,sh,THUMB_MAX);
   thumbCanvas.width=tw; thumbCanvas.height=th;
   thumbCtx.drawImage(storeCanvas,0,0,tw,th);
   const thumb=await blobFromCanvas(thumbCanvas, 0.7);
   if(bmp.close) try{ bmp.close(); }catch(_){}
   if(!studio || !thumb) throw new Error('encode');
-  return { studio, thumb, width:sw, height:sh };
+  return { studio, thumb, width:sw, height:sh, name: raw ? pngNameFrom(file) : file.name, converted: raw };
 }
 async function makeThumbBlob(source){
   const prepared=await preparePhoto(source);
@@ -484,6 +489,7 @@ async function addFiles(list, opts={}){
   bulkBusy=true;
   const added=[];
   const failed=[];
+  let converted=0;
   const now=Date.now();
   const showBulk=files.length>2;
   try{
@@ -491,10 +497,11 @@ async function addFiles(list, opts={}){
     for(let n=0;n<files.length;n++){
       const file=files[n];
       try{
-        const { studio, thumb, width, height } = await preparePhoto(file);
+        const { studio, thumb, width, height, name, converted:wasRaw } = await preparePhoto(file);
+        if(wasRaw) converted++;
         const rec={
           id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          name:file.name,
+          name: name || file.name,
           width, height,
           addedAt:now+n,
           e:{z:1,x:0,y:0,r:0,b:1,c:1},
@@ -523,9 +530,12 @@ async function addFiles(list, opts={}){
     if(added.length && selectFirst){ selected=0; await select(0); }
     else markActiveOnly();
     if(!$('galleryModal')?.classList.contains('hidden')) renderGallery();
-    const extra=failed.length?` · ${failed.length} skipped`: '';
+    const extra=[
+      converted?`${converted} CR2→PNG`:'',
+      failed.length?`${failed.length} skipped`:''
+    ].filter(Boolean).map(s=>' · '+s).join('');
     $('status').textContent=added.length?`${added.length} photo${added.length>1?'s':''} loaded · newest first${extra}`:'No supported images found';
-    if(added.length) toast(`${added.length} photo${added.length>1?'s':''} imported${extra}`, 3200);
+    if(added.length) toast(converted?`${converted} CR2 converted to PNG`: `${added.length} photo${added.length>1?'s':''} imported${extra}`, 3600);
     else toast(failed.length?'Those files could not be decoded. CR2 needs an embedded preview JPEG. Try JPG/PNG if it still fails.':'No supported images found', 5200);
   }finally{
     bulkBusy=false;
