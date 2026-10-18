@@ -2,8 +2,9 @@ const $=id=>document.getElementById(id); const W=940,H=788;
 const canvas=$('canvas'),ctx=canvas.getContext('2d',{alpha:false});
 let photos=[],selected=-1,overlay=null,overlayURL=null,stream=null,camFacing='environment',cameraTrack=null;
 
-const THUMB_MAX=240, FILE_CACHE_MAX=8, SIDEBAR_H=68, SIDEBAR_W=104;
+const THUMB_MAX=240, FILE_CACHE_MAX=24, PREVIEW_MAX_EDGE=2048, SIDEBAR_H=68, SIDEBAR_W=104;
 const fileCache=new Map();
+let previewGen=0;
 const thumbCanvas=document.createElement('canvas');
 const thumbCtx=thumbCanvas.getContext('2d',{alpha:false});
 let previewBitmap=null, previewBitmapId=null, bulkBusy=false, photoWindowRange={start:-1,end:-1};
@@ -47,11 +48,24 @@ async function dbGetPhoto(id){
   return new Promise((res,rej)=>{ const tx=d.transaction(PHOTO_STORE,'readonly'); const r=tx.objectStore(PHOTO_STORE).get(id); r.onsuccess=()=>res(r.result||null); r.onerror=()=>rej(r.error); });
 }
 async function dbPutPhoto(p, blob, thumb){
+  const storedBlob = blob || p.file || (fileCache.get(p.id) || null);
+  if(!storedBlob){ await dbPatchPhotoMeta(p); return 'meta'; }
   try{
-    const storedBlob = blob || p.file || (fileCache.get(p.id) || null);
-    if(!storedBlob){ await dbPatchPhotoMeta(p); return; }
     await dbPutRecord({id:p.id,blob:storedBlob,thumb:thumb||p.thumbBlob||undefined,name:p.name,width:p.width,height:p.height,addedAt:p.addedAt,e:p.e});
-  }catch(e){ console.warn('Photo persistence failed',e); }
+    p.file=null;
+    return 'full';
+  }catch(e){
+    console.warn('Photo persistence failed', e);
+    try{
+      if(thumb){
+        await dbPutRecord({id:p.id,blob:thumb,thumb,name:p.name,width:p.width,height:p.height,addedAt:p.addedAt,e:p.e});
+        p.file=storedBlob;
+        return 'thumb';
+      }
+    }catch(e2){ console.warn('Thumb-only persist failed', e2); }
+    p.file=storedBlob;
+    return 'memory';
+  }
 }
 async function dbPatchPhotoMeta(p){
   try{
@@ -69,15 +83,26 @@ function rememberFile(id, blob){
   if(!blob) return;
   if(fileCache.has(id)) fileCache.delete(id);
   fileCache.set(id, blob);
-  while(fileCache.size>FILE_CACHE_MAX) fileCache.delete(fileCache.keys().next().value);
+  const pinned=photos[selected]?.id;
+  while(fileCache.size>FILE_CACHE_MAX){
+    const first=fileCache.keys().next().value;
+    if(first===pinned || first===id){
+      const rest=[...fileCache.keys()].filter(k=>k!==pinned && k!==id);
+      if(!rest.length) break;
+      fileCache.delete(rest[0]);
+    }else{
+      fileCache.delete(first);
+    }
+  }
 }
 async function getPhotoFile(p){
   if(fileCache.has(p.id)){ rememberFile(p.id, fileCache.get(p.id)); return fileCache.get(p.id); }
   if(p.file){ rememberFile(p.id, p.file); return p.file; }
   const row=await dbGetPhoto(p.id);
-  if(!row?.blob) throw new Error('Photo data missing');
-  rememberFile(p.id, row.blob);
-  return row.blob;
+  const blob=row?.blob||row?.thumb;
+  if(!blob) throw new Error('Photo data missing');
+  rememberFile(p.id, blob);
+  return blob;
 }
 function dropPhotoMemory(p){
   try{ if(p.thumbUrl) URL.revokeObjectURL(p.thumbUrl); }catch(_){}
@@ -110,11 +135,11 @@ async function fillMissingThumbs(){
     if(p.thumbUrl) continue;
     try{
       const file=await getPhotoFile(p);
-      const thumb=await makeThumbBlob(file);
-      if(!thumb) continue;
-      p.thumbUrl=URL.createObjectURL(thumb);
+      const made=await makeThumbBlob(file);
+      if(!made?.blob) continue;
+      p.thumbUrl=URL.createObjectURL(made.blob);
       const row=await dbGetPhoto(p.id);
-      if(row){ row.thumb=thumb; await dbPutRecord(row); }
+      if(row){ row.thumb=made.blob; await dbPutRecord(row); }
       if(i%6===0){ updatePhotoWindow(true); if(!$('galleryModal')?.classList.contains('hidden')) renderGallery(); }
     }catch(e){ console.warn('Thumb rebuild failed', p.name, e); }
     await yieldUI();
@@ -125,7 +150,34 @@ async function fillMissingThumbs(){
 
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.remove('hidden');clearTimeout(window.__toast);window.__toast=setTimeout(()=>t.classList.add('hidden'),2200)}
 function yieldUI(){ return new Promise(r => setTimeout(r, 0)); }
-function loadImage(fileOrUrl){return new Promise((resolve,reject)=>{const url=typeof fileOrUrl==='string'?fileOrUrl:URL.createObjectURL(fileOrUrl);const im=new Image();im.onload=()=>{if(typeof fileOrUrl!=='string')URL.revokeObjectURL(url);resolve(im)};im.onerror=()=>{if(typeof fileOrUrl!=='string')URL.revokeObjectURL(url);reject(new Error('decode'))};im.src=url})}
+function loadImage(fileOrUrl){return new Promise((resolve,reject)=>{const url=typeof fileOrUrl==='string'?fileOrUrl:URL.createObjectURL(fileOrUrl);const im=new Image();im.decoding='async';im.onload=()=>{if(typeof fileOrUrl!=='string') setTimeout(()=>URL.revokeObjectURL(url),0);resolve(im)};im.onerror=()=>{if(typeof fileOrUrl!=='string')URL.revokeObjectURL(url);reject(new Error('decode'))};im.src=url})}
+async function createBitmap(source, extra={}){
+  try{ return await createImageBitmap(source, { imageOrientation:'from-image', ...extra }); }
+  catch(_){
+    try{ return await createImageBitmap(source, extra); }
+    catch(__){ return null; }
+  }
+}
+async function decodeImage(file, { maxEdge=PREVIEW_MAX_EDGE }={}){
+  let bmp = await createBitmap(file);
+  if(bmp){
+    const edge=Math.max(bmp.width, bmp.height);
+    if(maxEdge && edge>maxEdge){
+      const scale=maxEdge/edge;
+      const w=Math.max(1, Math.round(bmp.width*scale));
+      const h=Math.max(1, Math.round(bmp.height*scale));
+      const resized = await createBitmap(file, { resizeWidth:w, resizeHeight:h, resizeQuality:'medium' });
+      if(resized){
+        if(bmp.close) try{ bmp.close(); }catch(_){}
+        bmp=resized;
+      }
+    }
+    if(bmp && (bmp.width||bmp.naturalWidth)>1 && (bmp.height||bmp.naturalHeight)>1) return bmp;
+  }
+  const im=await loadImage(file);
+  if(!im.naturalWidth || !im.naturalHeight) throw new Error('decode');
+  return im;
+}
 function setBulk(done, total, label){
   const wrap=$('bulkProgress'), bar=$('bulkBar'), text=$('bulkLabel');
   if(!wrap) return;
@@ -146,15 +198,10 @@ function bindPhotoScroller(){
 }
 window.addEventListener('resize', () => { if(photos.length) updatePhotoWindow(true); });
 async function makeThumbBlob(source){
-  let bmp=null, width=0, height=0;
-  try{
-    bmp = await createImageBitmap(source);
-    width = bmp.width; height = bmp.height;
-  }catch(_){
-    const im = await loadImage(source);
-    width = im.naturalWidth; height = im.naturalHeight;
-    bmp = im;
-  }
+  let bmp=await createBitmap(source);
+  if(!bmp) bmp=await loadImage(source);
+  const width=bmp.naturalWidth||bmp.width, height=bmp.naturalHeight||bmp.height;
+  if(!width || !height) throw new Error('decode');
   const scale = Math.min(1, THUMB_MAX / Math.max(width, height));
   const tw = Math.max(1, Math.round(width * scale));
   const th = Math.max(1, Math.round(height * scale));
@@ -163,6 +210,7 @@ async function makeThumbBlob(source){
   thumbCtx.drawImage(bmp, 0, 0, tw, th);
   if(bmp.close) try{ bmp.close(); }catch(_){}
   const blob = await new Promise(r => thumbCanvas.toBlob(r, 'image/jpeg', 0.7));
+  if(!blob) throw new Error('thumb');
   return { blob, width, height };
 }
 function makePhotoRow(i){
@@ -255,6 +303,7 @@ async function addFiles(list, opts={}){
   if(bulkBusy){ toast('Still importing photos…'); return []; }
   bulkBusy=true;
   const added=[];
+  const failed=[];
   const now=Date.now();
   const showBulk=files.length>2;
   try{
@@ -269,25 +318,32 @@ async function addFiles(list, opts={}){
           width, height,
           addedAt:now+n,
           e:{z:1,x:0,y:0,r:0,b:1,c:1},
-          thumbUrl: thumb ? URL.createObjectURL(thumb) : ''
+          thumbUrl: thumb ? URL.createObjectURL(thumb) : '',
+          file
         };
         photos.unshift(rec);
         rememberFile(rec.id, file);
-        await dbPutPhoto(rec, file, thumb);
+        const saved=await dbPutPhoto(rec, file, thumb);
+        if(saved==='memory') rec.file=file;
         added.push(rec);
-        if(added.length===1 && selectFirst){ selected=0; select(0); }
-      }catch(e){ console.warn('Cannot decode', file.name, e); }
+        if(added.length===1 && selectFirst){ selected=0; await select(0); }
+      }catch(e){
+        console.warn('Cannot decode', file.name, e);
+        failed.push(file.name);
+      }
       if(showBulk) setBulk(n+1, files.length, 'Importing');
       if((n+1)%4===0 || n===files.length-1) renderList();
       await yieldUI();
     }
     photos.sort((a,b)=>(b.addedAt||0)-(a.addedAt||0));
     renderList();
-    if(added.length && selectFirst){ selected=0; select(0); }
+    if(added.length && selectFirst){ selected=0; await select(0); }
     else markActiveOnly();
     if(!$('galleryModal')?.classList.contains('hidden')) renderGallery();
-    $('status').textContent=added.length?`${added.length} photo${added.length>1?'s':''} loaded · newest first`:'No supported images found';
-    if(added.length) toast(`${added.length} photo${added.length>1?'s':''} imported`);
+    const extra=failed.length?` · ${failed.length} skipped`: '';
+    $('status').textContent=added.length?`${added.length} photo${added.length>1?'s':''} loaded · newest first${extra}`:'No supported images found';
+    if(added.length) toast(`${added.length} photo${added.length>1?'s':''} imported${extra}`);
+    else toast(failed.length?'Those files could not be decoded':'No supported images found');
   }finally{
     bulkBusy=false;
     setBulk(0,0);
@@ -296,7 +352,7 @@ async function addFiles(list, opts={}){
 }
 
 $('pick').onclick=()=>{$('files').click()};$('files').addEventListener('change',async e=>{await addFiles([...e.target.files]);e.target.value=''});$('drop').onclick=()=>{$('files').click()};$('drop').ondragover=e=>{e.preventDefault();$('drop').style.background='#eaf2ff'};$('drop').ondragleave=()=>{$('drop').style.background=''};$('drop').ondrop=e=>{e.preventDefault();$('drop').style.background='';addFiles([...e.dataTransfer.files])};
-function select(i){
+async function select(i){
   if(i<0||i>=photos.length)return;
   if(previewBitmapId && previewBitmapId!==photos[i].id){
     if(previewBitmap?.close) try{ previewBitmap.close(); }catch(_){}
@@ -308,7 +364,7 @@ function select(i){
   markActiveOnly();
   ensureRowVisible(i);
   if(typeof updateSettingsTarget==='function') updateSettingsTarget();
-  drawPreview();
+  await drawPreview();
 }
 function updateReadouts(){if(selected<0)return;const e=photos[selected].e;$('zv').textContent=Math.round(e.z*100)+'%';$('xv').textContent=e.x;$('yv').textContent=e.y;$('rv').textContent=e.r+'°'}
 let metaSaveTimer=null;
@@ -318,17 +374,16 @@ function scheduleMetaSave(p){
 }
 [['zoom','z'],['x','x'],['y','y'],['rot','r'],['bright','b'],['contrast','c']].forEach(([id,key])=>$(id).addEventListener('input',()=>{if(selected<0)return;photos[selected].e[key]=Number($(id).value);scheduleMetaSave(photos[selected]);updateReadouts();drawPreview()}));['project','custom'].forEach(id=>$(id).addEventListener('input',()=>{dbPutSetting(id,$(id).value);drawPreview();}));
 async function getPreviewSource(p){
-  if(previewBitmap && previewBitmapId===p.id) return previewBitmap;
+  if(previewBitmap && previewBitmapId===p.id && (previewBitmap.width||previewBitmap.naturalWidth)>1) return previewBitmap;
   if(previewBitmap?.close) try{ previewBitmap.close(); }catch(_){}
   previewBitmap=null; previewBitmapId=null;
   const file=await getPhotoFile(p);
-  try{ previewBitmap=await createImageBitmap(file); }
-  catch(_){ previewBitmap=await loadImage(file); }
+  previewBitmap=await decodeImage(file, { maxEdge: PREVIEW_MAX_EDGE });
   previewBitmapId=p.id;
   return previewBitmap;
 }
 function sourceSize(im){
-  return [im.naturalWidth||im.width, im.naturalHeight||im.height];
+  return [im.naturalWidth||im.width||0, im.naturalHeight||im.height||0];
 }
 async function drawComposition(target,ow,oh,photo){
   target.clearRect(0,0,ow,oh);target.fillStyle='#202832';target.fillRect(0,0,ow,oh);
@@ -338,13 +393,14 @@ async function drawComposition(target,ow,oh,photo){
   try{
     if(photo && photo.id!==previewBitmapId){
       const file=await getPhotoFile(p);
-      try{ im=await createImageBitmap(file); owned=true; }
-      catch(_){ im=await loadImage(file); }
+      im=await decodeImage(file, { maxEdge: Math.max(ow, oh, PREVIEW_MAX_EDGE) });
+      owned=!!im?.close;
     }else{
       im=await getPreviewSource(p);
     }
-  }catch{ return false; }
+  }catch(e){ console.warn('Preview decode failed', p.name, e); return false; }
   const [iw,ih]=sourceSize(im);
+  if(!iw || !ih) return false;
   const e=p.e,scale=Math.max(ow/iw,oh/ih);
   target.save();target.translate(ow/2+e.x*(ow/W),oh/2+e.y*(oh/H));target.rotate(e.r*Math.PI/180);target.scale(e.z,e.z);target.filter=`brightness(${e.b}) contrast(${e.c})`;
   const dw=iw*scale,dh=ih*scale;target.drawImage(im,-dw/2,-dh/2,dw,dh);target.restore();target.filter='none';
@@ -354,7 +410,18 @@ async function drawComposition(target,ow,oh,photo){
   if(owned && im.close) try{ im.close(); }catch(_){}
   return true;
 }
-async function drawPreview(){updateReadouts();const ok=await drawComposition(ctx,W,H);$('empty').style.display=(selected>=0&&ok)?'none':'flex'}
+async function drawPreview(){
+  const gen=++previewGen;
+  updateReadouts();
+  const ok=await drawComposition(ctx,W,H);
+  if(gen!==previewGen) return ok;
+  $('empty').style.display=selected>=0?'none':'flex';
+  if(selected>=0 && !ok){
+    $('status').textContent='Could not display this photo · tap it in the list to retry';
+    toast('Photo saved · tap it in the Photos list to show it');
+  }
+  return ok;
+}
 function chosenResolution(photo){
   const p=photo||photos[selected];
   const v=$('resolution').value;
