@@ -28,7 +28,7 @@
         <button type="button" id="cam" class="btn btn-accent">Camera</button>
         <button type="button" id="tpl" class="btn">Template</button>
         <button type="button" id="infoNav" class="btn btn-ghost">Info</button>
-        <input id="files" type="file" multiple accept="image/*" hidden>
+        <input id="files" type="file" multiple accept="image/*,.cr2,.CR2,.cr3,.dng,.raw" hidden>
         <input id="folder" type="file" webkitdirectory directory multiple hidden>
       </div>
     </header>
@@ -46,7 +46,7 @@
         <div id="photos" class="photos"></div>
         <div id="drop" class="drop" role="button" tabindex="0">
           <strong>Drop a folder for big batches</strong>
-          <small>Chrome can fail if you pick 100+ from Gallery</small>
+          <small>JPG · PNG · WebP · CR2 · folder for big batches</small>
           <button type="button" id="pickFolder" class="btn btn-ghost drop-folder">Import folder</button>
         </div>
       </aside>

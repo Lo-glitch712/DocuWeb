@@ -226,8 +226,93 @@ window.addEventListener('resize', () => { if(photos.length) updatePhotoWindow(tr
 async function blobFromCanvas(source, quality=0.84){
   return await new Promise(r => source.toBlob(r, 'image/jpeg', quality));
 }
+function isRawFile(file){
+  if(!file) return false;
+  if(/\.(cr2|crw|cr3|dng|nef|arw|orf|raf|rw2|raw)$/i.test(file.name||'')) return true;
+  return /cr2|canon|x-raw|image\/dng|image\/x-nikon|image\/x-sony/i.test(file.type||'');
+}
+function jpegSofMarker(u8, soi, end){
+  let i=soi+2;
+  while(i<end-1){
+    if(u8[i]!==0xFF){ i++; continue; }
+    while(i<end && u8[i]===0xFF) i++;
+    if(i>=end) break;
+    const marker=u8[i++];
+    if(marker===0xDA || marker===0xD9) break;
+    if(marker>=0xC0 && marker<=0xCF && marker!==0xC4 && marker!==0xC8 && marker!==0xCC) return marker;
+    if(marker===0x01 || (marker>=0xD0 && marker<=0xD7) || marker===0xD8) continue;
+    if(i+1>=end) break;
+    const len=(u8[i]<<8)|u8[i+1];
+    if(len<2) break;
+    i+=len;
+  }
+  return 0;
+}
+function jpegEndIndex(u8, soi){
+  let i=soi+2;
+  const n=u8.length;
+  while(i<n){
+    if(u8[i]!==0xFF){ i++; continue; }
+    while(i<n && u8[i]===0xFF) i++;
+    if(i>=n) return -1;
+    const marker=u8[i++];
+    if(marker===0xD9) return i;
+    if(marker===0xD8) return -1;
+    if(marker===0xDA){
+      if(i+1>=n) return -1;
+      i+=(u8[i]<<8)|u8[i+1];
+      while(i<n-1){
+        if(u8[i]===0xFF && u8[i+1]!==0x00 && u8[i+1]!==0xFF && !(u8[i+1]>=0xD0 && u8[i+1]<=0xD7)){
+          if(u8[i+1]===0xD9) return i+2;
+          i++;
+          continue;
+        }
+        i++;
+      }
+      return -1;
+    }
+    if(marker===0x01 || (marker>=0xD0 && marker<=0xD7)) continue;
+    if(i+1>=n) return -1;
+    const len=(u8[i]<<8)|u8[i+1];
+    if(len<2) return -1;
+    i+=len;
+  }
+  return -1;
+}
+function extractBaselineJpegBytes(u8){
+  let best=null, fallback=null;
+  const n=u8.length;
+  for(let i=0;i<n-3;i++){
+    if(u8[i]!==0xFF || u8[i+1]!==0xD8 || u8[i+2]!==0xFF) continue;
+    const end=jpegEndIndex(u8, i);
+    if(end<0 || end-i<512) continue;
+    const sof=jpegSofMarker(u8, i, end);
+    const rec={ start:i, end, size:end-i };
+    if(sof===0xC0 || sof===0xC1 || sof===0xC2){
+      if(!best || rec.size>best.size) best=rec;
+    }else if(!fallback || rec.size>fallback.size){
+      fallback=rec;
+    }
+    i=end-1;
+  }
+  const pick=best||fallback;
+  return pick ? u8.subarray(pick.start, pick.end) : null;
+}
+async function extractRawPreview(file){
+  const buf=await file.arrayBuffer();
+  const jpeg=extractBaselineJpegBytes(new Uint8Array(buf));
+  if(!jpeg || jpeg.length<512) return null;
+  return new Blob([jpeg], { type:'image/jpeg' });
+}
+async function fileForDecode(file){
+  if(!isRawFile(file)) return file;
+  const preview=await extractRawPreview(file);
+  if(!preview) throw new Error('raw preview');
+  return preview;
+}
 async function preparePhoto(file){
-  const bmp=await decodeImage(file, { maxEdge: STORE_MAX_EDGE });
+  const source=await fileForDecode(file);
+  const bmp=await decodeImage(source, { maxEdge: STORE_MAX_EDGE });
   const [width,height]=sourceWH(bmp);
   if(!width || !height) throw new Error('decode');
   const [sw,sh]=fitSize(width,height,STORE_MAX_EDGE);
@@ -326,7 +411,7 @@ function ensureRowVisible(i){
 function isImageFile(file){
   if(!file) return false;
   if(file.type && file.type.startsWith('image/')) return true;
-  return /\.(png|jpe?g|webp|gif|bmp|heic|heif|dng|raw)$/i.test(file.name||'');
+  return /\.(png|jpe?g|webp|gif|bmp|heic|heif|dng|raw|cr2|crw|cr3|nef|arw|orf|raf|rw2)$/i.test(file.name||'');
 }
 function readAllDirEntries(dirEntry){
   const reader=dirEntry.createReader();
@@ -441,7 +526,7 @@ async function addFiles(list, opts={}){
     const extra=failed.length?` · ${failed.length} skipped`: '';
     $('status').textContent=added.length?`${added.length} photo${added.length>1?'s':''} loaded · newest first${extra}`:'No supported images found';
     if(added.length) toast(`${added.length} photo${added.length>1?'s':''} imported${extra}`, 3200);
-    else toast(failed.length?'Those files could not be decoded. Try JPG/PNG, or Import folder.':'No supported images found', 4800);
+    else toast(failed.length?'Those files could not be decoded. CR2 needs an embedded preview JPEG. Try JPG/PNG if it still fails.':'No supported images found', 5200);
   }finally{
     bulkBusy=false;
     setBulk(0,0);
